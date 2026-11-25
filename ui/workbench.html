@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>客户跟进 · AliSupplier</title>
+  <link rel="stylesheet" href="/workbench.css">
+  <script src="/workbench.js" defer></script>
+</head>
+<body>
+<div class="shell">
+  <aside class="navigation">
+    <div class="identity"><div class="logomark" aria-hidden="true">↳</div><div><strong>客户跟进</strong><small>AliSupplier</small></div></div>
+    <nav aria-label="工作台">
+      <button class="nav-button active" data-screen="work">跟进工作台</button>
+      <button class="nav-button" data-screen="settings">AI 与设置</button>
+    </nav>
+    <div class="nav-bottom">
+      <p class="connection" id="connection"><span></span>正在连接</p>
+      <a href="/logs">采集调试 ↗</a>
+    </div>
+  </aside>
+  <main class="main">
+    <section id="work-screen" aria-labelledby="work-title">
+      <header class="heading">
+        <div><div class="eyebrow" id="today"></div><h1 id="work-title">客户跟进</h1><p>查看对话的新进展，安排下一步。</p></div>
+        <div class="actions">
+          <button id="desktop-control" type="button" class="button" hidden>服务控制</button>
+          <select id="accounts" aria-label="卖家账号"><option value="">全部账号</option></select>
+        </div>
+      </header>
+      <div class="system-note" id="system-note" hidden></div>
+      <div class="toolbar">
+        <div class="tabs" aria-label="筛选会话">
+          <button data-filter="follow" class="active">待我方跟进</button>
+          <button data-filter="recent">最近更新</button>
+          <button data-filter="review">需要核对</button>
+          <button data-filter="all">全部客户</button>
+        </div>
+        <input id="search" type="search" placeholder="搜索客户或商品" aria-label="搜索客户或商品">
+      </div>
+      <div class="table-title"><span>客户与会话</span><span>最新进展</span><span>状态</span></div>
+      <div id="list" aria-live="polite"><div class="empty">正在读取会话…</div></div>
+      <button id="more" class="button more" hidden>加载更多</button>
+    </section>
+    <section id="settings-screen" hidden aria-labelledby="settings-title">
+      <header class="heading"><div><h1 id="settings-title">AI 与设置</h1><p>修改后保存，等待中的批次会使用新设置。</p></div><button id="save" class="button primary" form="settings-form" disabled>保存设置</button></header>
+      <form id="settings-form">
+        <fieldset id="settings-fields" disabled>
+        <div class="setting-section">
+          <h2>汇总时机</h2>
+          <label class="check"><input type="checkbox" id="automatic"> 有客户新消息时自动汇总</label>
+          <div class="form-grid">
+            <label>静默等待（分钟）<input id="quiet_minutes" type="number" min="1" max="60" required></label>
+            <label>最长等待（分钟）<input id="max_minutes" type="number" min="1" max="120" required></label>
+          </div>
+        </div>
+        <div class="setting-section">
+          <div class="section-title"><h2>AI 接口</h2><button type="button" class="button" id="add-profile">添加接口</button></div>
+          <div id="profiles"></div>
+          <div class="form-grid">
+            <label>文字汇总<select id="text_profile"></select></label>
+            <label>看图模型<select id="image_profile"></select></label>
+          </div>
+        </div>
+        <div class="setting-section">
+          <h2>图片和用量</h2>
+          <label class="check"><input type="checkbox" id="ocr"> 本地 OCR 提取文字 <span id="ocr-status" class="muted"></span></label>
+          <label class="check"><input type="checkbox" id="vision"> 在本批有可用图片时启用看图模型</label>
+          <label class="check"><input type="checkbox" id="allow_external_images"> 允许把待识别图片发送到外部接口</label>
+          <div class="form-grid">
+            <label>每日文字 Token 预算<input id="token_budget" type="number" min="0" max="100000000" required></label>
+            <label>每日看图次数上限<input id="image_budget" type="number" min="0" max="10000" required></label>
+          </div>
+          <p class="muted" id="usage"></p>
+        </div>
+        </fieldset>
+      </form>
+    </section>
+  </main>
+</div>
+<dialog id="detail" class="detail">
+  <header class="detail-head">
+    <div><div class="eyebrow" id="detail-account"></div><h2 id="detail-title">客户详情</h2></div>
+    <button id="close-detail" class="button" type="button" aria-label="关闭客户详情">关闭</button>
+  </header>
+  <div class="detail-scroll" id="detail-scroll"></div>
+</dialog>
+<div class="toast" id="toast" role="status" hidden></div>
+</body>
+</html>

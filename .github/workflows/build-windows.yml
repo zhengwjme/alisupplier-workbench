@@ -1,0 +1,63 @@
+name: Build Windows
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-x64:
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Install pinned dependencies
+        working-directory: desktop
+        run: npm ci --no-audit --no-fund
+      - name: Build Windows x64 portable app
+        working-directory: desktop
+        run: npm run build:desktop -- --platform=win32 --arch=x64
+      - name: Verify Windows bundle
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bundle = 'dist/AliSupplier-Workbench-win32-x64'
+          $exe = Join-Path $bundle 'AliSupplier-Workbench.exe'
+          $backend = Join-Path $bundle 'resources/backend'
+          if (!(Test-Path $exe -PathType Leaf)) { throw 'Electron executable is missing' }
+          & (Join-Path $backend 'python/python.exe') -I -B -c "import sqlite3, ssl; assert sqlite3.connect(':memory:').execute('SELECT json_valid(?)', ('{}',)).fetchone() == (1,); assert ssl.OPENSSL_VERSION"
+          if ($LASTEXITCODE -ne 0) { throw 'Bundled Python failed on Windows' }
+          $zip = Get-ChildItem 'dist/AliSupplier-Workbench-*-win32-x64.zip'
+          if (@($zip).Count -ne 1) { throw 'Expected exactly one release archive' }
+          $expected = (Get-Content ($zip.FullName + '.sha256') -Raw).Split(' ')[0]
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne $expected) { throw 'Release checksum mismatch' }
+          $archive = [IO.Compression.ZipFile]::OpenRead($zip.FullName)
+          try {
+            $prefix = 'AliSupplier-Workbench-win32-x64/'
+            foreach ($file in @('AliSupplier-Workbench.exe', 'resources/app.asar', 'resources/backend/python/python.exe', 'resources/backend/server.py')) {
+              if (!$archive.GetEntry($prefix + $file)) { throw "Archive missing $file" }
+            }
+          } finally {
+            $archive.Dispose()
+          }
+      - name: Publish portable application artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: AliSupplier-Workbench-Windows-x64
+          path: |
+            dist/AliSupplier-Workbench-*-win32-x64.zip
+            dist/AliSupplier-Workbench-*-win32-x64.zip.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

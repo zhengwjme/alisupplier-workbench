@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AliSupplier IM 采集</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <span class="dot" id="dot"></span>
+    <strong>AliSupplier IM</strong>
+    <span class="muted" id="stateText">初始化…</span>
+    <span class="pill" id="pidPill" hidden>PID —</span>
+    <span class="pill" id="userPill" hidden></span>
+  </div>
+  <div class="counters" id="counters"></div>
+  <div class="actions">
+    <button id="btnRescan" class="btn primary">重新扫描</button>
+    <button id="btnDebug" class="btn ghost">调试</button>
+  </div>
+</header>
+
+<div class="hint" id="hint" hidden></div>
+
+<main class="layout">
+  <aside class="sidebar">
+    <div class="search">
+      <input id="q" placeholder="搜索会话 / 内容">
+    </div>
+    <div class="accounts" id="accounts"></div>
+    <div class="conv-list" id="convList"></div>
+  </aside>
+
+  <section class="chat">
+    <div class="chat-head">
+      <div>
+        <div class="chat-title" id="chatTitle">选择左侧会话</div>
+        <div class="chat-sub muted" id="chatSub"></div>
+      </div>
+      <div class="chat-tools">
+        <button class="btn ghost" id="btnReload">刷新</button>
+      </div>
+    </div>
+    <div class="messages" id="messages">
+      <div class="empty" id="empty">
+        <div class="empty-title">还没有采集到消息</div>
+        <ol class="empty-list">
+          <li>先打开「阿里卖家」并保持运行</li>
+          <li>顶栏状态应显示 <b>已连接（日志）</b></li>
+          <li>发一条消息或等买家消息，左侧出现会话</li>
+          <li>没有数据时点「调试」查看跳过原因</li>
+        </ol>
+      </div>
+    </div>
+    <div class="composer-note muted">只读采集（解析应用自身日志），不注入、不代发消息</div>
+  </section>
+</main>
+
+<section class="debug" id="debugPanel" hidden>
+  <div class="debug-head">
+    <strong>原始事件</strong>
+    <span class="muted" id="debugCount"></span>
+    <button class="btn ghost" id="btnDebugRefresh">刷新</button>
+  </div>
+  <pre id="debugBody"></pre>
+</section>
+
+<script src="/app.js"></script>
+</body>
+</html>

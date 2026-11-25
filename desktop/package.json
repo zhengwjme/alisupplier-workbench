@@ -1,0 +1,19 @@
+{
+  "name": "alisupplier-workbench",
+  "version": "1.0.0",
+  "description": "AliSupplier 客户跟进工作台",
+  "private": true,
+  "main": "entry.cjs",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "start": "node dev.cjs",
+    "build:desktop": "node build.cjs"
+  },
+  "devDependencies": {
+    "@electron/packager": "20.3.0",
+    "electron": "45.4.1"
+  },
+  "author": "AliSupplier Workbench"
+}

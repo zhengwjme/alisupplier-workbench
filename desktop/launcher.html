@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'">
+  <title>AliSupplier 客户跟进</title>
+  <link rel="stylesheet" href="launcher.css">
+  <script src="launcher.js" defer></script>
+</head>
+<body>
+  <aside class="brand">
+    <span class="mark" aria-hidden="true">↳</span>
+    <div><strong>客户跟进</strong><small>AliSupplier</small></div>
+  </aside>
+  <main>
+    <section aria-labelledby="title">
+      <p id="status" class="status" role="status">正在读取服务状态</p>
+      <h1 id="title">客户跟进工作台</h1>
+      <p class="description">启动本地服务，查看客户对话、最新汇总和待跟进事项。</p>
+      <div class="actions">
+        <button id="start" type="button" disabled>启动服务</button>
+        <button id="stop" type="button" hidden>取消启动</button>
+      </div>
+      <p id="message" class="message" role="alert" hidden></p>
+    </section>
+  </main>
+</body>
+</html>
