@@ -659,13 +659,121 @@ async function loadAnalytics() {
     card.append(node('div', 'kpi-label', label), node('div', 'kpi-value ' + cls, String(val)), node('div', 'kpi-sub', sub));
     kpiGrid.append(card);
   };
-  addKpi('总客户 / 周期活跃', `${kpi.total_customers || 0} / ${kpi.active_customers || 0}`, `买家消息 ${kpi.in_messages || 0} · 我方 ${kpi.out_messages || 0}`);
-  addKpi('待我回复', kpi.unreplied_count || 0, '最后一条为买家发送', (kpi.unreplied_count || 0) > 0 ? 'warn' : 'accent');
-  addKpi('沉默待唤醒 (>24h)', kpi.silent_followup_count || 0, '我方已发且超 24h 未回', (kpi.silent_followup_count || 0) > 0 ? 'warn' : '');
+  addKpi('独立咨询商品', kpi.unique_products || 0, `覆盖 ${kpi.total_customers || 0} 位客户会话`, 'accent');
+  addKpi('已识别国家/地区', kpi.unique_countries || 0, `已定位 ${kpi.identified_country_customers || 0} 位买家地域`, 'accent');
+  addKpi('待我回复 / 待唤醒', `${kpi.unreplied_count || 0} / ${kpi.silent_followup_count || 0}`, `买家消息 ${kpi.in_messages || 0} · 我方 ${kpi.out_messages || 0}`, (kpi.unreplied_count || 0) > 0 ? 'warn' : '');
   const respText = kpi.avg_response_minutes !== null && kpi.avg_response_minutes !== undefined ? kpi.avg_response_minutes + ' 分钟' : '暂无样本';
   const rateText = kpi.within_1h_rate !== null && kpi.within_1h_rate !== undefined ? `1小时回复率 ${kpi.within_1h_rate}% (${kpi.response_samples}次)` : '需产生问答交互后统计';
-  addKpi('平均响应耗时', respText, rateText, 'accent');
+  addKpi('平均响应耗时', respText, rateText);
   body.append(kpiGrid);
+
+  // 选品核心区 1：客户地域分布（大区 + 国家 Top 15）
+  const geoGrid = node('div', 'analytics-grid');
+  const regPanel = node('section', 'panel');
+  const regH = node('h2', '', '客户大区分布（选品市场方向）');
+  regH.append(node('small', '', '来源：卡片国旗 + Frida 资料'));
+  regPanel.append(regH);
+  const regBars = node('div', 'bar-list');
+  if (!(data.regions || []).length) {
+    regBars.append(node('p', 'muted', '暂无已识别地域数据，开启阿里卖家集成或同步卡片后自动累计。'));
+  } else {
+    const maxReg = Math.max(1, ...data.regions.map(r => r.buyers));
+    for (const r of data.regions) {
+      const row = node('div', 'bar-row');
+      const track = node('div', 'bar-track');
+      const fill = node('div', 'bar-fill');
+      fill.style.width = Math.round((r.buyers / maxReg) * 100) + '%';
+      track.append(fill);
+      row.append(node('span', '', r.region), track, node('strong', '', r.buyers + '人'));
+      regBars.append(row);
+    }
+  }
+  regPanel.append(regBars);
+
+  const ctryPanel = node('section', 'panel');
+  const ctryH = node('h2', '', '买家来源国家 Top 15');
+  ctryH.append(node('small', '', '按独立买家数排序'));
+  ctryPanel.append(ctryH);
+  const ctryBars = node('div', 'bar-list');
+  if (!(data.countries || []).length) {
+    ctryBars.append(node('p', 'muted', '暂无国家分布数据。'));
+  } else {
+    const maxC = Math.max(1, ...data.countries.map(c => c.buyers));
+    for (const c of data.countries) {
+      const row = node('div', 'bar-row');
+      const track = node('div', 'bar-track');
+      const fill = node('div', 'bar-fill');
+      fill.style.width = Math.round((c.buyers / maxC) * 100) + '%';
+      track.append(fill);
+      const lbl = node('span', '', c.name);
+      lbl.title = `${c.name} · ${c.region} · ${c.messages} 条消息`;
+      row.append(lbl, track, node('strong', '', c.buyers + '人'));
+      ctryBars.append(row);
+    }
+  }
+  ctryPanel.append(ctryBars);
+  geoGrid.append(regPanel, ctryPanel);
+  body.append(geoGrid);
+
+  // 选品核心区 2：热门咨询商品 Top 15 + 品类热词 & 国家×商品交叉
+  const prPanel = node('section', 'panel');
+  prPanel.style.marginBottom = '16px';
+  const prH = node('h2', '', '热门咨询商品 Top 15（选品主榜）');
+  prH.append(node('small', '', '标价 / 起订量 / 咨询买家数 / 来源国家'));
+  prPanel.append(prH);
+  if (!(data.top_products || []).length) {
+    prPanel.append(node('p', 'muted', '选定周期内暂无商品卡片记录。'));
+  } else {
+    for (const p of data.top_products) {
+      const row = node('div', 'prod-row');
+      const info = node('div', 'prod-info');
+      info.append(node('span', 'prod-title', p.title));
+      const subParts = [];
+      if (p.price) subParts.push('标价 ' + p.price);
+      if (p.moq) subParts.push('MOQ ' + p.moq);
+      if (p.countries?.length) subParts.push('买家来源: ' + p.countries.join('、'));
+      if (subParts.length) info.append(node('span', 'prod-sub', subParts.join(' · ')));
+      row.append(info, node('span', 'prod-meta', `${p.buyers} 位买家 / ${p.mentions} 次`));
+      prPanel.append(row);
+    }
+  }
+  body.append(prPanel);
+
+  const selGrid = node('div', 'analytics-grid');
+  const kwPanel = node('section', 'panel');
+  const kwH = node('h2', '', '高需求产品品类热词');
+  kwH.append(node('small', '', '按咨询买家数加权'));
+  kwPanel.append(kwH);
+  const kwCloud = node('div', 'kw-cloud');
+  if (!(data.top_keywords || []).length) {
+    kwCloud.append(node('p', 'muted', '暂无产品热词数据。'));
+  } else {
+    for (const k of data.top_keywords) {
+      const pill = node('span', 'kw-pill', k.word);
+      pill.append(node('small', '', String(k.buyers)));
+      kwCloud.append(pill);
+    }
+  }
+  kwPanel.append(kwCloud);
+
+  const cpPanel = node('section', 'panel');
+  const cpH = node('h2', '', '国家 × 热询商品（定向选品）');
+  cpH.append(node('small', '', '各市场买家在问什么品'));
+  cpPanel.append(cpH);
+  if (!(data.country_products || []).length) {
+    cpPanel.append(node('p', 'muted', '暂无已同时关联国家与商品的会话。在阿里卖家点击客户即可自动补齐国家信息。'));
+  } else {
+    for (const cp of data.country_products) {
+      const item = node('div', 'cp-item');
+      item.append(
+        node('div', 'cp-head', `${cp.country} · ${cp.region}`),
+        node('div', 'cp-prods', cp.products.map(p => `${p.title.slice(0, 48)} (${p.buyers})`).join(' ｜ '))
+      );
+      cpPanel.append(item);
+    }
+  }
+  selGrid.append(kwPanel, cpPanel);
+  body.append(selGrid);
 
   const topGrid = node('div', 'analytics-grid');
   const unPanel = node('section', 'panel');
@@ -679,7 +787,8 @@ async function loadAnalytics() {
     for (const item of data.urgent_unreplied) {
       const btn = button('', () => openDetail({ user_id: item.user_id, cid: item.cid, peer: item.peer }, false), 'action-item');
       const main = node('div', 'action-item-main');
-      main.append(node('strong', '', item.peer + (item.stage ? ` [${item.stage}]` : '')), node('small', '', item.last_content || '等待回复'));
+      const extraTag = [item.country, item.stage].filter(Boolean).join(' · ');
+      main.append(node('strong', '', item.peer + (extraTag ? ` [${extraTag}]` : '')), node('small', '', item.last_content || '等待回复'));
       const waitTxt = item.wait_minutes >= 60 ? Math.floor(item.wait_minutes / 60) + '小时' : item.wait_minutes + '分钟';
       btn.append(main, node('span', 'badge warn', '已等 ' + waitTxt));
       unList.append(btn);
@@ -698,7 +807,8 @@ async function loadAnalytics() {
     for (const item of data.silent_followups) {
       const btn = button('', () => openDetail({ user_id: item.user_id, cid: item.cid, peer: item.peer }, false), 'action-item');
       const main = node('div', 'action-item-main');
-      main.append(node('strong', '', item.peer + (item.stage ? ` [${item.stage}]` : '')), node('small', '', item.last_content || '我方已发送'));
+      const extraTag = [item.country, item.stage].filter(Boolean).join(' · ');
+      main.append(node('strong', '', item.peer + (extraTag ? ` [${extraTag}]` : '')), node('small', '', item.last_content || '我方已发送'));
       btn.append(main, node('span', 'badge neutral', item.wait_hours + 'h 前'));
       siList.append(btn);
     }
@@ -741,24 +851,6 @@ async function loadAnalytics() {
   hrPanel.append(hrChart);
   midGrid.append(stPanel, hrPanel);
   body.append(midGrid);
-
-  const prPanel = node('section', 'panel');
-  const prH = node('h2', '', '热门咨询商品 Top 10');
-  prH.append(node('small', '', '解析自真实商品卡片'));
-  prPanel.append(prH);
-  if (!(data.top_products || []).length) {
-    prPanel.append(node('p', 'muted', '选定周期内暂无商品卡片记录。'));
-  } else {
-    for (const p of data.top_products) {
-      const row = node('div', 'prod-row');
-      row.append(
-        node('span', 'prod-title', p.title),
-        node('span', 'prod-meta', [p.price, `${p.buyers} 位买家`, `${p.mentions} 次`].filter(Boolean).join(' · '))
-      );
-      prPanel.append(row);
-    }
-  }
-  body.append(prPanel);
 }
 
 for (const el of document.querySelectorAll('[data-screen]')) {

@@ -50,20 +50,28 @@ function setupDarwin() {
         guard++;
         const key = readArm64StdString(node.add(0x10));
         if (key) {
+          // prglite_rapidjson::GenericValue (24 bytes): flags_ at +0x16 (uint16)
+          // kStringFlag = 0x0400, kInlineStrFlag = 0x0800
           const valPtr = node.add(0x28);
-          const flags = valPtr.add(0x14).readU32();
-          const type = flags & 0xFF;
+          const flags = valPtr.add(0x16).readU16();
           let val = null;
-          if (type === 5 || type === 6) {
-            try {
-              const strPtr = valPtr.readPointer();
-              if (!strPtr.isNull()) val = strPtr.readUtf8String();
-            } catch (_) {
+          if ((flags & 0x0400) !== 0) {
+            if ((flags & 0x0800) !== 0) {
+              // Inline short string: chars at +0x00 (NUL-terminated)
               try { val = valPtr.readUtf8String(); } catch (_) {}
+            } else {
+              // Pointer string: length (u32) at +0x00, char* at +0x08
+              try {
+                const len = valPtr.readU32();
+                const strPtr = valPtr.add(8).readPointer();
+                if (!strPtr.isNull() && len > 0 && len < 8192) {
+                  val = strPtr.readUtf8String(len);
+                }
+              } catch (_) {}
             }
-          } else {
-            const asStd = readArm64StdString(valPtr);
-            if (asStd !== null) val = asStd;
+          } else if ((flags & 0x0100) !== 0) {
+            // Number (int64/uint64)
+            try { val = valPtr.readS64().toString(); } catch (_) {}
           }
           if (val !== null && val !== "") extra[key] = val;
         }

@@ -139,10 +139,19 @@ input:not([type=checkbox]), select, textarea, .button { border: 1px solid var(--
 .action-item-main { min-width: 0; }
 .action-item-main strong { display: block; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .action-item-main small { display: block; font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.prod-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+.prod-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
 .prod-row:last-child { border-bottom: 0; }
-.prod-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
-.prod-meta { white-space: nowrap; color: var(--muted); font-size: 11px; }
+.prod-info { min-width: 0; flex: 1; }
+.prod-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650; }
+.prod-sub { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
+.prod-meta { white-space: nowrap; color: var(--accent); font-weight: 650; font-size: 12px; }
+.kw-cloud { display: flex; flex-wrap: wrap; gap: 6px; }
+.kw-pill { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 99px; background: var(--soft); color: var(--accent); font-size: 12px; font-weight: 600; }
+.kw-pill small { opacity: .75; font-size: 11px; }
+.cp-item { padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+.cp-item:last-child { border-bottom: 0; }
+.cp-head { font-weight: 700; margin-bottom: 3px; }
+.cp-prods { color: var(--muted); font-size: 11px; line-height: 1.5; }
 @media (max-width: 850px) { .analytics-grid { grid-template-columns: 1fr; } }
 .report { padding: 15px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); margin-bottom: 14px; }
 .report h3 { font-size: 12px; color: var(--muted); margin: 10px 0 3px; text-transform: uppercase; letter-spacing: .03em; }
