@@ -1088,7 +1088,7 @@ async function loadAnalytics() {
     col.title = `${h}:00 - ${h + 1}:00：${cnt} 条买家消息`;
     const bar = node('div', 'hour-bar');
     bar.style.height = Math.max(2, Math.round((cnt / maxHr) * 76)) + 'px';
-    col.append(bar, node('span', 'hour-lbl', h % 3 === 0 ? String(h) : ''));
+    col.append(bar, node('span', 'hour-lbl', h % 4 === 0 ? String(h) : ''));
     hrChart.append(col);
   });
   hrPanel.append(hrChart);
