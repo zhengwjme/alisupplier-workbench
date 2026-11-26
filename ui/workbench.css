@@ -844,7 +844,200 @@ input:not([type=checkbox]):focus, select:focus, textarea:focus { border-color: v
 .bottom-tab svg { width: 19px; height: 19px; }
 .bottom-tab.active { color: var(--indigo); font-weight: 700; }
 
-.toast { position: fixed; z-index: 50; bottom: 70px; left: 50%; transform: translateX(-50%); background: var(--ink); color: #fff; border-radius: 99px; padding: 8px 16px; font-size: 13px; max-width: 90%; }
+.toast {
+  position: fixed;
+  z-index: 50;
+  bottom: 70px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--ink);
+  color: #fff;
+  border-radius: 99px;
+  padding: 8px 16px;
+  font-size: 13px;
+  max-width: 90%;
+  box-shadow: 0 10px 28px rgba(27, 37, 65, 0.22);
+  animation: toastPop 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ===== AI 科技感 & 精密物理动效体系 ===== */
+@keyframes shimmerSlide {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+@keyframes aiBorderFlow {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+@keyframes aiDotPulse {
+  0%, 80%, 100% { transform: scale(0.65); opacity: .35; }
+  40% { transform: scale(1.1); opacity: 1; }
+}
+@keyframes aiSparkSpin {
+  0% { transform: rotate(0deg) scale(1); }
+  50% { transform: rotate(180deg) scale(1.1); }
+  100% { transform: rotate(360deg) scale(1); }
+}
+@keyframes aiPulseHalo {
+  0% { box-shadow: 0 0 0 0 rgba(35, 52, 120, 0.35); }
+  70% { box-shadow: 0 0 0 10px rgba(35, 52, 120, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(35, 52, 120, 0); }
+}
+@keyframes spinOnce {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@keyframes slideInForward {
+  from { transform: translateX(22px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+@keyframes slideInBack {
+  from { transform: translateX(-18px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+@keyframes draftReveal {
+  from { transform: translateY(8px) scale(0.985); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+@keyframes arcDraw {
+  from { stroke-dashoffset: 100; opacity: 0.2; }
+  to { stroke-dashoffset: 0; opacity: 1; }
+}
+@keyframes barGrow {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+@keyframes toastPop {
+  from { transform: translate(-50%, 10px) scale(0.95); opacity: 0; }
+  to { transform: translate(-50%, 0) scale(1); opacity: 1; }
+}
+
+/* 流光骨架基础 */
+.shimmer {
+  background: linear-gradient(100deg, var(--paper-alt) 25%, #ffffff 50%, var(--paper-alt) 75%);
+  background-size: 220% 100%;
+  animation: shimmerSlide 1.5s linear infinite;
+}
+.shimmer-ai {
+  background: linear-gradient(100deg, rgba(35, 52, 120, 0.08) 20%, rgba(164, 86, 46, 0.14) 50%, rgba(35, 52, 120, 0.08) 80%);
+  background-size: 240% 100%;
+  animation: shimmerSlide 1.4s ease-in-out infinite;
+}
+.skel-thread {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 4px;
+  border-bottom: 1px solid var(--hairline);
+  animation: fadeLift 200ms ease-out both;
+}
+.skel-avatar { width: 38px; height: 38px; border-radius: 50%; flex-shrink: 0; }
+.skel-body { flex: 1; display: grid; gap: 8px; }
+.skel-line { height: 10px; border-radius: 99px; }
+.skel-line.w-35 { width: 35%; }
+.skel-line.w-45 { width: 45%; }
+.skel-line.w-55 { width: 55%; }
+.skel-line.w-70 { width: 70%; }
+.skel-line.w-85 { width: 85%; }
+.skel-line.w-90 { width: 90%; }
+
+/* AI 精密推理思考卡 */
+.ai-thinking-card {
+  position: relative;
+  overflow: hidden;
+  border-radius: 14px;
+  padding: 13px 14px;
+  background: linear-gradient(135deg, rgba(238, 241, 249, 0.92), rgba(247, 236, 228, 0.55));
+  border: 1px solid rgba(35, 52, 120, 0.12);
+  display: grid;
+  gap: 10px;
+  animation: draftReveal 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.ai-thinking-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--indigo);
+}
+.ai-dots { display: inline-flex; align-items: center; gap: 4px; }
+.ai-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--indigo);
+  display: block;
+  animation: aiDotPulse 1.2s ease-in-out infinite;
+}
+.ai-dots i:nth-child(2) { background: #5a6eb8; animation-delay: 0.16s; }
+.ai-dots i:nth-child(3) { background: var(--copper); animation-delay: 0.32s; }
+.ai-thinking-bars { display: grid; gap: 7px; }
+
+/* 顶栏星标 AI 运行脉冲 & 刷新旋转 */
+.circle-btn.is-ai-running {
+  background: var(--indigo-soft);
+  color: var(--indigo);
+  border-color: rgba(35, 52, 120, 0.25);
+  animation: aiPulseHalo 1.3s ease-out infinite;
+}
+.circle-btn.is-ai-running svg { animation: aiSparkSpin 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+.circle-btn.is-spinning svg { animation: spinOnce 420ms cubic-bezier(0.16, 1, 0.3, 1); }
+
+/* 底部 AI 回复条：思考时的流体光边 */
+.composer-bar {
+  position: relative;
+  border-radius: 99px;
+  transition: box-shadow .22s ease;
+}
+.composer-bar.is-thinking::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 99px;
+  background: linear-gradient(90deg, var(--indigo), #5b74d4, var(--copper), var(--indigo));
+  background-size: 260% 100%;
+  animation: aiBorderFlow 1.8s linear infinite;
+  z-index: 0;
+  opacity: 0.85;
+}
+.composer-bar.is-thinking > * { position: relative; z-index: 1; }
+.composer-bar.is-thinking .composer-input { border-color: transparent; }
+
+/* AI 草稿错峰弹出 & 骨架草稿 */
+.draft-pop { animation: draftReveal 240ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.draft-skel { display: grid; gap: 8px; padding: 12px; }
+
+/* 详情主视图错峰出场 + 二级聊天推进/退回方向一致 */
+.detail-view-overview > .detail-section { animation: draftReveal 260ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.detail-view-overview > .detail-section:nth-child(2) { animation-delay: 45ms; }
+.detail-view-overview > .detail-section:nth-child(3) { animation-delay: 90ms; }
+.detail-view-chat.anim-forward { animation: slideInForward 240ms cubic-bezier(0.16, 1, 0.3, 1); }
+.detail-view-overview.anim-back { animation: slideInBack 200ms cubic-bezier(0.16, 1, 0.3, 1); }
+
+/* 选品页双弧精密描边 + 柱状图舒展 */
+.arc-draw {
+  stroke-dasharray: 100;
+  stroke-dashoffset: 0;
+  animation: arcDraw 680ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.arc-draw.arc-2 { animation-delay: 80ms; }
+.arc-draw.arc-3 { animation-delay: 140ms; }
+.arc-draw.arc-4 { animation-delay: 200ms; }
+.bar-fill { transform-origin: left center; animation: barGrow 520ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+/* Frida 联动中呼吸微光点 */
+.pill-btn.active .dot { animation: aiPulseHalo 2.2s ease-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer, .shimmer-ai, .ai-dots i, .circle-btn.is-ai-running, .circle-btn.is-ai-running svg,
+  .circle-btn.is-spinning svg, .composer-bar.is-thinking::before, .draft-pop, .arc-draw,
+  .bar-fill, .toast, .pill-btn.active .dot, .detail-view-overview > .detail-section,
+  .detail-view-chat.anim-forward, .detail-view-overview.anim-back {
+    animation: none !important;
+  }
+}
 
 /* 迷你悬浮窗 & 窄屏手机端模式 */
 body.widget-mode .navigation { display: none; }

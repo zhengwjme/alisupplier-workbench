@@ -116,9 +116,46 @@ function renderList() {
   $('more').hidden = !state.more;
 }
 
+function renderListSkeleton(count = 4) {
+  const frag = document.createDocumentFragment();
+  for (let i = 0; i < count; i++) {
+    const row = node('div', 'skel-thread');
+    row.style.animationDelay = (i * 55) + 'ms';
+    row.append(
+      node('div', 'skel-avatar shimmer'),
+      (() => {
+        const b = node('div', 'skel-body');
+        b.append(node('div', 'skel-line w-45 shimmer'), node('div', 'skel-line w-85 shimmer'));
+        return b;
+      })()
+    );
+    frag.append(row);
+  }
+  return frag;
+}
+
+function renderAiThinking(label = 'AI 正在分析多轮询盘与意图…') {
+  const box = node('div', 'ai-thinking-card');
+  const head = node('div', 'ai-thinking-head');
+  const dots = node('span', 'ai-dots');
+  dots.append(node('i'), node('i'), node('i'));
+  head.append(dots, node('span', '', label));
+  const bars = node('div', 'ai-thinking-bars');
+  bars.append(
+    node('div', 'skel-line w-90 shimmer-ai'),
+    node('div', 'skel-line w-70 shimmer-ai'),
+    node('div', 'skel-line w-55 shimmer-ai')
+  );
+  box.append(head, bars);
+  return box;
+}
+
 async function loadList(append = false) {
   const request = ++listRequest;
   const offset = append ? state.rows.length : 0;
+  if (!append && !state.rows.length) {
+    $('list').replaceChildren(renderListSkeleton(4));
+  }
   const data = await api('/api/workbench/list' + params({
     user: $('accounts').value, q: $('search').value.trim(), filter: state.filter, offset,
     count: append ? 100 : Math.min(500, Math.max(100, state.rows.length))
@@ -284,13 +321,28 @@ let activeDetailView = 'overview';
 let currentDetailMeta = { title: '客户详情', sub: '', msgCount: 0 };
 
 function setDetailView(view, scrollToBottom = false) {
+  const prev = activeDetailView;
   activeDetailView = view;
   const dlg = $('detail');
   if (dlg) dlg.dataset.view = view;
   const overview = document.querySelector('.detail-view-overview');
   const chat = document.querySelector('.detail-view-chat');
-  if (overview) overview.hidden = view !== 'overview';
-  if (chat) chat.hidden = view !== 'chat';
+  if (overview) {
+    overview.hidden = view !== 'overview';
+    if (view === 'overview' && prev === 'chat') {
+      overview.classList.remove('anim-back');
+      void overview.offsetWidth;
+      overview.classList.add('anim-back');
+    }
+  }
+  if (chat) {
+    chat.hidden = view !== 'chat';
+    if (view === 'chat') {
+      chat.classList.remove('anim-forward');
+      void chat.offsetWidth;
+      chat.classList.add('anim-forward');
+    }
+  }
   const chatBtn = $('detail-chat-btn');
   if (chatBtn) chatBtn.hidden = view === 'chat';
   const closeBtn = $('close-detail');
@@ -479,9 +531,17 @@ function renderDetailComposer(user, cid) {
   intent.setAttribute('aria-label', '输入中文意图生成英文回复');
   const genBtn = button('AI 写回复', async () => {
     genBtn.disabled = true;
-    genBtn.textContent = '生成中…';
+    genBtn.textContent = '思考中…';
+    bar.classList.add('is-thinking');
     tray.hidden = false;
-    list.replaceChildren(node('div', 'draft-loading', '正在结合聊天上下文起草英文回复…'));
+    list.replaceChildren(
+      renderAiThinking('正在结合聊天上下文起草英文回复…'),
+      (() => {
+        const sk = node('div', 'draft-item draft-skel');
+        sk.append(node('div', 'skel-line w-35 shimmer-ai'), node('div', 'skel-line w-90 shimmer-ai'), node('div', 'skel-line w-70 shimmer-ai'));
+        return sk;
+      })()
+    );
     try {
       const res = await api('/api/workbench/draft-reply', { user, cid, intent: intent.value.trim() });
       list.replaceChildren();
@@ -489,8 +549,9 @@ function renderDetailComposer(user, cid) {
       if (!drafts.length) {
         list.append(node('div', 'draft-loading', '未能生成草稿，请先检查 AI 模型设置。'));
       }
-      for (const d of drafts) {
-        const item = node('div', 'draft-item');
+      drafts.forEach((d, idx) => {
+        const item = node('div', 'draft-item draft-pop');
+        item.style.animationDelay = (idx * 65) + 'ms';
         const top = node('div', 'draft-item-top');
         const copyBtn = button('复制英文', async () => {
           try {
@@ -509,11 +570,12 @@ function renderDetailComposer(user, cid) {
         item.append(top, node('div', 'draft-item-en', d.en || ''));
         if (d.zh) item.append(node('div', 'draft-item-zh', d.zh));
         list.append(item);
-      }
+      });
     } catch (error) {
       tray.hidden = true;
       notice(error.message);
     } finally {
+      bar.classList.remove('is-thinking');
       genBtn.disabled = false;
       genBtn.textContent = 'AI 写回复';
     }
@@ -551,6 +613,9 @@ async function openDetail(row, checked = true) {
   const user = row.user_id, cid = row.cid;
   $('detail-title').textContent = row.peer || cid;
   $('detail-account').textContent = '正在加载会话…';
+  if (!isSame) {
+    scroll.replaceChildren(renderAiThinking('正在载入客户档案与 AI 总结…'));
+  }
   if (!$('detail').open) $('detail').showModal();
 
   const runBtn = $('detail-run-btn');
@@ -559,6 +624,12 @@ async function openDetail(row, checked = true) {
   if (runBtn) {
     runBtn.onclick = async () => {
       runBtn.disabled = true;
+      runBtn.classList.add('is-ai-running');
+      const aiSecEl = document.querySelector('.ai-summary-sec');
+      const liveHint = renderAiThinking('AI 正在提炼客户意图与下一步跟进策略…');
+      if (aiSecEl && !aiSecEl.querySelector('.ai-thinking-card')) {
+        aiSecEl.insertBefore(liveHint, aiSecEl.children[1] || null);
+      }
       try {
         const result = await api('/api/workbench/run', {user, cid});
         notice(result.queued ? '已提交 AI 汇总，完成后会提示刷新' : '暂无新消息，或该会话正在汇总中');
@@ -566,12 +637,19 @@ async function openDetail(row, checked = true) {
       } catch (err) {
         notice(err.message);
       } finally {
-        runBtn.disabled = false;
+        setTimeout(() => {
+          runBtn.classList.remove('is-ai-running');
+          runBtn.disabled = false;
+          liveHint.remove();
+        }, 650);
       }
     };
   }
   if (refreshBtn) {
-    refreshBtn.onclick = () => openDetail(row, true);
+    refreshBtn.onclick = () => {
+      refreshBtn.classList.add('is-spinning');
+      openDetail(row, true).finally(() => setTimeout(() => refreshBtn.classList.remove('is-spinning'), 420));
+    };
   }
   if (chatBtn) {
     chatBtn.onclick = () => setDetailView('chat', true);
@@ -820,21 +898,22 @@ $('add-profile').addEventListener('click', () => {
 async function loadAnalytics() {
   const body = $('analytics-body');
   if (!body) return;
+  body.replaceChildren(renderAiThinking('正在聚合本地询盘与地域选品数据…'));
   const days = $('analytics-days')?.value ?? '30';
   const user = $('accounts')?.value || '';
   const data = await api('/api/workbench/analytics' + params({ days, user }));
   const kpi = data.kpi || {};
   body.replaceChildren();
 
-  // 图 3 Everyday 风格上下分置双弧（中间留出宽阔通道放数字，绝不压字）
+  // 图 3 Everyday 风格上下分置双弧（带精密路径描边绘制动效）
   const hero = node('section', 'rings-hero');
   const visual = node('div', 'rings-visual');
   visual.innerHTML = `
     <svg viewBox="0 0 280 152" fill="none" aria-hidden="true">
-      <path d="M 38 42 C 52 10, 118 8, 146 34" stroke="#233478" stroke-width="5.5" stroke-linecap="round"/>
-      <path d="M 134 34 C 162 8, 228 10, 242 42" stroke="#a4562e" stroke-width="5.5" stroke-linecap="round"/>
-      <path d="M 46 116 C 68 144, 122 144, 144 124" stroke="#233478" stroke-width="5.5" stroke-linecap="round"/>
-      <path d="M 136 124 C 158 144, 212 144, 234 116" stroke="#a4562e" stroke-width="5.5" stroke-linecap="round"/>
+      <path class="arc-draw arc-1" pathLength="100" d="M 38 42 C 52 10, 118 8, 146 34" stroke="#233478" stroke-width="5.5" stroke-linecap="round"/>
+      <path class="arc-draw arc-2" pathLength="100" d="M 134 34 C 162 8, 228 10, 242 42" stroke="#a4562e" stroke-width="5.5" stroke-linecap="round"/>
+      <path class="arc-draw arc-3" pathLength="100" d="M 46 116 C 68 144, 122 144, 144 124" stroke="#233478" stroke-width="5.5" stroke-linecap="round"/>
+      <path class="arc-draw arc-4" pathLength="100" d="M 136 124 C 158 144, 212 144, 234 116" stroke="#a4562e" stroke-width="5.5" stroke-linecap="round"/>
     </svg>`;
   const center = node('div', 'rings-center');
   center.append(
