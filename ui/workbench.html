@@ -174,8 +174,18 @@
       <h2 id="detail-title">客户详情</h2>
       <div class="detail-head-sub" id="detail-account"></div>
     </div>
+    <div class="detail-head-actions">
+      <button id="detail-run-btn" class="circle-btn" type="button" aria-label="立即汇总" title="立即用 AI 汇总本会话">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z"/></svg>
+      </button>
+      <button id="detail-refresh-btn" class="circle-btn" type="button" aria-label="刷新详情" title="刷新会话详情">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+      </button>
+    </div>
   </header>
+  <div class="detail-subbar" id="detail-subbar"></div>
   <div class="detail-scroll" id="detail-scroll"></div>
+  <div class="detail-composer" id="detail-composer"></div>
 </dialog>
 <div class="toast" id="toast" role="status" hidden></div>
 </body>

@@ -281,7 +281,9 @@ function renderMessage(message, row) {
 }
 
 async function openEvidence(row, ids) {
+  switchDetailTab('chat');
   const list = $('evidence-messages');
+  if (!list) return;
   const missing = ids.filter(id => !list.querySelector('[data-message-id="' + id + '"]'));
   const earlier = await Promise.all(missing.map(id => api('/api/workbench/message' + params({
     user: row.user_id, cid: row.cid, id
@@ -291,18 +293,33 @@ async function openEvidence(row, ids) {
   for (const el of list.querySelectorAll('.message')) {
     el.classList.toggle('active', ids.includes(Number(el.dataset.messageId)));
   }
-  list.querySelector('.message.active')?.scrollIntoView({block: 'nearest'});
+  list.querySelector('.message.active')?.scrollIntoView({block: 'center', behavior: 'smooth'});
 }
 
-function renderCustomerCard(data, user, cid, row) {
+let activeDetailTab = 'chat';
+
+function switchDetailTab(tab) {
+  activeDetailTab = tab;
+  document.querySelectorAll('.detail-seg-btn').forEach(btn => {
+    const on = btn.dataset.dtab === tab;
+    btn.classList.toggle('active', on);
+    btn.setAttribute('aria-selected', String(on));
+  });
+  document.querySelectorAll('.detail-pane').forEach(pane => {
+    pane.hidden = pane.dataset.dpane !== tab;
+  });
+}
+
+function renderCustomerProfilePane(data, user, cid, row, onStageSync) {
   const c = data.customer || {};
   const stats = data.stats || {};
   const name = c.display_name || row.peer || cid;
   const uid = c.uid || (cid.includes('-') ? cid.split('-')[0] : '');
   const domain = cid.includes('@') ? cid.split('@').pop() : '';
 
-  const card = node('section', 'customer-card');
-  const top = node('div', 'customer-top');
+  const wrap = node('div', 'profile-pane');
+
+  const head = node('div', 'profile-hero');
   const avatar = node('div', 'customer-avatar');
   if (c.avatar_url && /^https?:\/\//.test(c.avatar_url)) {
     const img = node('img');
@@ -313,14 +330,62 @@ function renderCustomerCard(data, user, cid, row) {
   } else {
     avatar.textContent = (name || '?').slice(0, 1).toUpperCase();
   }
-  const titleWrap = node('div');
+  const titleWrap = node('div', 'profile-hero-text');
   titleWrap.append(
     node('div', 'customer-name', name),
-    node('div', 'customer-sub', [uid ? '买家UID: ' + uid : '', domain ? '渠道: ' + domain : ''].filter(Boolean).join(' · ') || cid)
+    node('div', 'customer-sub', [uid ? 'UID ' + uid : '', domain ? domain : ''].filter(Boolean).join(' · ') || cid)
   );
-  top.append(avatar, titleWrap);
-  card.append(top);
+  head.append(avatar, titleWrap);
+  wrap.append(head);
 
+  // 快捷标签 + 私密备注
+  const crm = node('section', 'detail-section');
+  crm.append(node('h3', 'detail-sec-title', '标签与跟进备注'));
+  const tagRow = node('div', 'crm-tags');
+  const presetTags = ['高意向', '价格敏感', '已加WA', '老客户', '催样中'];
+  let activeTags = new Set(Array.isArray(c.tags) ? c.tags : []);
+  const noteInput = node('textarea', 'crm-note');
+  noteInput.placeholder = '记录目标价、WhatsApp、样卡单号或避坑点… 失焦自动保存';
+  noteInput.setAttribute('aria-label', '客户私密备注');
+  noteInput.value = c.note || '';
+
+  const saveMeta = async (silent = false) => {
+    try {
+      const stageVal = $('detail-stage-select')?.value ?? (c.stage || '');
+      await api('/api/workbench/customer-note', {
+        user, cid,
+        stage: stageVal,
+        tags: [...activeTags],
+        note: noteInput.value
+      });
+      c.tags = [...activeTags];
+      c.note = noteInput.value;
+      c.stage = stageVal;
+      if (onStageSync) onStageSync(c);
+      if (!silent) notice('已保存客户档案');
+      loadList().catch(() => {});
+    } catch (error) {
+      notice(error.message);
+    }
+  };
+  noteInput.addEventListener('blur', () => {
+    if (noteInput.value !== (c.note || '')) saveMeta(false);
+  });
+  for (const tag of presetTags) {
+    const chip = button(tag, () => {
+      if (activeTags.has(tag)) activeTags.delete(tag);
+      else activeTags.add(tag);
+      chip.classList.toggle('active', activeTags.has(tag));
+      saveMeta(true);
+    }, 'tag-chip' + (activeTags.has(tag) ? ' active' : ''));
+    tagRow.append(chip);
+  }
+  crm.append(tagRow, noteInput);
+  wrap.append(crm);
+
+  // 互动数据与扩展信息
+  const metaSec = node('section', 'detail-section');
+  metaSec.append(node('h3', 'detail-sec-title', '互动记录与资料'));
   const grid = node('div', 'customer-grid');
   const kv = (targetGrid, label, val) => {
     if (val === null || val === undefined || val === '') return;
@@ -337,7 +402,7 @@ function renderCustomerCard(data, user, cid, row) {
       if (v && typeof v === 'string' && !k.startsWith('_')) kv(grid, k, v);
     }
   }
-  card.append(grid);
+  metaSec.append(grid);
 
   const more = node('details', 'customer-more');
   more.append(node('summary', '', '账号与会话标识'));
@@ -345,120 +410,88 @@ function renderCustomerCard(data, user, cid, row) {
   kv(moreGrid, '卖家账号', user);
   kv(moreGrid, '会话 CID', cid);
   more.append(moreGrid);
-  card.append(more);
+  metaSec.append(more);
+  wrap.append(metaSec);
 
-  // 意向阶段 + 快捷标签 + 私密备注
-  const crm = node('div', 'crm-panel');
-  const stageRow = node('div', 'crm-row');
-  const stageSel = node('select');
-  stageSel.setAttribute('aria-label', '客户阶段');
-  const stages = ['', '新询盘', '需求确认', '已报价', '寄样中', '谈判逼单', '已成交', '冷淡'];
-  for (const s of stages) stageSel.append(new Option(s || '阶段：未标记', s));
-  stageSel.value = c.stage || '';
-
-  const presetTags = ['高意向', '价格敏感', '已加WA', '老客户', '催样中'];
-  let activeTags = new Set(Array.isArray(c.tags) ? c.tags : []);
-  const noteInput = node('textarea', 'crm-note');
-  noteInput.placeholder = '记录客户备注（如：目标价、已加 WhatsApp、样卡单号）… 失焦自动保存';
-  noteInput.value = c.note || '';
-
-  const saveMeta = async (silent = false) => {
-    try {
-      await api('/api/workbench/customer-note', {
-        user, cid,
-        stage: stageSel.value,
-        tags: [...activeTags],
-        note: noteInput.value
-      });
-      if (!silent) notice('已保存客户档案');
-      loadList().catch(() => {});
-    } catch (error) {
-      notice(error.message);
-    }
-  };
-  stageSel.addEventListener('change', () => saveMeta(false));
-  noteInput.addEventListener('blur', () => {
-    if (noteInput.value !== (c.note || '')) {
-      c.note = noteInput.value;
-      saveMeta(false);
-    }
-  });
-  stageRow.append(stageSel);
-  for (const tag of presetTags) {
-    const chip = button(tag, () => {
-      if (activeTags.has(tag)) activeTags.delete(tag);
-      else activeTags.add(tag);
-      chip.classList.toggle('active', activeTags.has(tag));
-      saveMeta(true);
-    }, 'tag-chip' + (activeTags.has(tag) ? ' active' : ''));
-    stageRow.append(chip);
-  }
-  crm.append(stageRow, noteInput);
-  card.append(crm);
-  return card;
+  return wrap;
 }
 
-function renderDraftCard(user, cid) {
-  const card = node('section', 'draft-card');
-  const head = node('div', 'draft-head');
-  head.append(node('span', '', 'AI 回复助手'), node('small', 'muted', '生成后一键复制粘贴到阿里卖家'));
-  const inputRow = node('div', 'draft-input-row');
-  const intent = node('input');
-  intent.type = 'text';
-  intent.placeholder = '输入中文意图（可留空，如：300米起订，$4.2/米）';
+function renderDetailComposer(user, cid) {
+  const box = $('detail-composer');
+  const tray = node('div', 'draft-tray');
+  tray.hidden = true;
+  const trayHead = node('div', 'draft-tray-head');
+  trayHead.append(
+    node('span', '', 'AI 英文回复草稿'),
+    button('收起', () => { tray.hidden = true; }, 'draft-close-btn')
+  );
   const list = node('div', 'draft-list');
-  const genBtn = button('生成回复', async () => {
+  tray.append(trayHead, list);
+
+  const bar = node('div', 'composer-bar');
+  const intent = node('input', 'composer-input');
+  intent.type = 'text';
+  intent.placeholder = '输入中文意图，让 AI 写英文回复…';
+  intent.setAttribute('aria-label', '输入中文意图生成英文回复');
+  const genBtn = button('AI 写回复', async () => {
     genBtn.disabled = true;
     genBtn.textContent = '生成中…';
-    list.replaceChildren();
+    tray.hidden = false;
+    list.replaceChildren(node('div', 'draft-loading', '正在结合聊天上下文起草英文回复…'));
     try {
       const res = await api('/api/workbench/draft-reply', { user, cid, intent: intent.value.trim() });
-      for (const d of res.drafts || []) {
+      list.replaceChildren();
+      const drafts = res.drafts || [];
+      if (!drafts.length) {
+        list.append(node('div', 'draft-loading', '未能生成草稿，请先检查 AI 模型设置。'));
+      }
+      for (const d of drafts) {
         const item = node('div', 'draft-item');
         const top = node('div', 'draft-item-top');
         const copyBtn = button('复制英文', async () => {
           try {
             await navigator.clipboard.writeText(d.en || '');
             copyBtn.textContent = '已复制 ✓';
-            setTimeout(() => { copyBtn.textContent = '复制英文'; }, 1600);
+            copyBtn.classList.add('copied');
+            setTimeout(() => {
+              copyBtn.textContent = '复制英文';
+              copyBtn.classList.remove('copied');
+            }, 1600);
           } catch (_) {
             notice('复制失败，请手动选中复制');
           }
-        }, 'button');
-        copyBtn.style.padding = '2px 8px';
-        copyBtn.style.fontSize = '11px';
+        }, 'draft-copy-btn');
         top.append(node('span', '', d.title || '建议回复'), copyBtn);
         item.append(top, node('div', 'draft-item-en', d.en || ''));
-        if (d.zh) item.append(node('div', 'draft-item-zh', '中文：' + d.zh));
+        if (d.zh) item.append(node('div', 'draft-item-zh', d.zh));
         list.append(item);
       }
     } catch (error) {
+      tray.hidden = true;
       notice(error.message);
     } finally {
       genBtn.disabled = false;
-      genBtn.textContent = '生成回复';
+      genBtn.textContent = 'AI 写回复';
     }
-  }, 'button primary');
+  }, 'composer-btn');
   intent.addEventListener('keydown', e => { if (e.key === 'Enter') genBtn.click(); });
-  inputRow.append(intent, genBtn);
-  card.append(head, inputRow, list);
-  return card;
+  bar.append(intent, genBtn);
+  box.replaceChildren(tray, bar);
 }
 
 function renderCustomerProducts(products) {
   if (!Array.isArray(products) || !products.length) return null;
-  const sec = node('section', 'section-block');
-  sec.style.marginBottom = '0';
-  const h = node('h2', '', '该买家咨询过的商品');
+  const sec = node('section', 'detail-section');
+  const h = node('h3', 'detail-sec-title', '咨询过的商品');
   h.append(node('small', '', `${products.length} 款`));
   sec.append(h);
   for (const p of products) {
-    const row = node('div', 'prod-row');
-    const info = node('div', 'prod-info');
-    info.append(node('span', 'prod-title', p.title));
+    const row = node('div', 'detail-prod-row');
+    const info = node('div', 'detail-prod-info');
+    info.append(node('div', 'detail-prod-title', p.title));
     const sub = [p.price, p.moq ? 'MOQ ' + p.moq : ''].filter(Boolean).join(' · ');
-    if (sub) info.append(node('span', 'prod-sub', sub));
-    row.append(info, node('span', 'prod-meta', `${p.count} 次`));
+    if (sub) info.append(node('div', 'detail-prod-sub', sub));
+    row.append(info, node('span', 'detail-prod-count', `${p.count} 次`));
     sec.append(row);
   }
   return sec;
@@ -467,53 +500,141 @@ function renderCustomerProducts(products) {
 async function openDetail(row, checked = true) {
   const request = ++detailRequest;
   const scroll = $('detail-scroll');
-  const previousScroll = state.selected === row ? scroll.scrollTop : 0;
+  const isSame = state.selected && state.selected.user_id === row.user_id && state.selected.cid === row.cid;
+  const previousScroll = isSame ? scroll.scrollTop : 0;
+  if (!isSame) activeDetailTab = 'chat';
   state.selected = row;
   const user = row.user_id, cid = row.cid;
   $('detail-title').textContent = row.peer || cid;
-  $('detail-account').textContent = user;
+  $('detail-account').textContent = '正在加载会话…';
   if (!$('detail').open) $('detail').showModal();
+
+  // 顶栏动作按钮绑定当前会话
+  const runBtn = $('detail-run-btn');
+  const refreshBtn = $('detail-refresh-btn');
+  if (runBtn) {
+    runBtn.onclick = async () => {
+      runBtn.disabled = true;
+      try {
+        const result = await api('/api/workbench/run', {user, cid});
+        notice(result.queued ? '已提交 AI 汇总，完成后会提示刷新' : '暂无新消息，或该会话正在汇总中');
+        await loadList();
+      } catch (err) {
+        notice(err.message);
+      } finally {
+        runBtn.disabled = false;
+      }
+    };
+  }
+  if (refreshBtn) {
+    refreshBtn.onclick = () => openDetail(row, true);
+  }
+
   const data = await api('/api/workbench/detail' + params({user, cid}));
   if (request !== detailRequest || !$('detail').open) return;
-  if (data.customer?.display_name) {
-    $('detail-title').textContent = data.customer.display_name;
-    row.peer = data.customer.display_name;
-  }
-  const customerMeta = [];
-  if (data.customer?.uid) customerMeta.push('买家ID: ' + data.customer.uid);
-  $('detail-account').textContent = customerMeta.length ? `${user} · ${customerMeta.join(' · ')}` : user;
-  const top = node('div', 'actions');
-  top.append(button('立即汇总', async () => {
-    const result = await api('/api/workbench/run', {user, cid});
-    notice(result.queued ? '已提交，生成后会显示可刷新提示。' : '没有新内容，或该会话正在汇总。');
-    await loadList();
-  }, 'button primary'), button('刷新详情', () => openDetail(row, true)));
-  const feedback = node('p', 'muted', row.error || (row.pending ? '有新消息待汇总。' : ''));
-  feedback.id = 'detail-feedback';
-  feedback.setAttribute('role', 'status');
+
+  const c = data.customer || {};
+  const stats = data.stats || {};
+  const products = Array.isArray(data.products) ? data.products : [];
   const report = data.reports[0];
-  const prodSec = renderCustomerProducts(data.products);
-  const blocks = [renderCustomerCard(data, user, cid, row)];
-  if (prodSec) blocks.push(prodSec);
-  blocks.push(renderDraftCard(user, cid), top, feedback);
-  scroll.replaceChildren(...blocks);
-  if (report) {
-    scroll.append(reportBlock(report, row));
-    if (data.reports.length > 1) {
-      const history = node('details');
-      history.append(node('summary', '', '最近的历史概要'));
-      history.append(...data.reports.slice(1).map(item => reportBlock(item, row, false)));
-      scroll.append(history);
-    }
-  } else {
-    scroll.append(node('div', 'empty', '还没有概要。收到客户新消息后会按设置汇总。'));
+
+  if (c.display_name) {
+    $('detail-title').textContent = c.display_name;
+    row.peer = c.display_name;
   }
-  scroll.append(node('h3', 'chat-title', '聊天证据'));
+  const subParts = [];
+  if (c.extra?.country) subParts.push(c.extra.country);
+  else if (c.uid) subParts.push('UID ' + c.uid);
+  if (stats.total_messages) subParts.push(stats.total_messages + ' 条消息');
+  if (stats.last_at) subParts.push('更新于 ' + formatTime(stats.last_at));
+  $('detail-account').textContent = subParts.join(' · ') || user;
+
+  // 顶部状态带 + 3 段式切换条（固定在顶栏下方，不随滚动消失）
+  const subbar = $('detail-subbar');
+  const statusStrip = node('div', 'detail-status-strip');
+
+  const stageWrap = node('div', 'detail-stage-wrap');
+  const stageSel = node('select', 'detail-stage-select');
+  stageSel.id = 'detail-stage-select';
+  stageSel.setAttribute('aria-label', '客户阶段');
+  const stages = ['', '新询盘', '需求确认', '已报价', '寄样中', '谈判逼单', '已成交', '冷淡'];
+  for (const s of stages) stageSel.append(new Option(s || '未标阶段', s));
+  stageSel.value = c.stage || '';
+  stageWrap.classList.toggle('has-stage', Boolean(c.stage));
+  stageSel.addEventListener('change', async () => {
+    stageWrap.classList.toggle('has-stage', Boolean(stageSel.value));
+    try {
+      await api('/api/workbench/customer-note', {
+        user, cid,
+        stage: stageSel.value,
+        tags: Array.isArray(c.tags) ? c.tags : [],
+        note: c.note || ''
+      });
+      c.stage = stageSel.value;
+      notice(c.stage ? '已更新阶段：' + c.stage : '已清除阶段标记');
+      loadList().catch(() => {});
+    } catch (error) {
+      notice(error.message);
+    }
+  });
+  stageWrap.append(stageSel);
+  stageWrap.insertAdjacentHTML('beforeend', '<svg class="stage-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>');
+
+  const stripMeta = node('div', 'detail-strip-tags');
+  const renderStripTags = (cust) => {
+    stripMeta.replaceChildren();
+    const tags = Array.isArray(cust.tags) ? cust.tags : [];
+    for (const t of tags.slice(0, 2)) {
+      stripMeta.append(node('span', 'mini-tag', t));
+    }
+    if (tags.length > 2) stripMeta.append(node('span', 'mini-tag', '+' + (tags.length - 2)));
+    if (products.length) {
+      const prodBadge = button(`${products.length} 款商品`, () => switchDetailTab('insight'), 'mini-prod-pill');
+      stripMeta.append(prodBadge);
+    }
+  };
+  renderStripTags(c);
+  statusStrip.append(stageWrap, stripMeta);
+
+  const seg = node('div', 'detail-seg');
+  seg.setAttribute('role', 'tablist');
+  const tabs = [
+    ['chat', `对话${stats.total_messages ? ' (' + stats.total_messages + ')' : ''}`],
+    ['insight', `概要${products.length ? ' · 商品' : ''}`],
+    ['profile', '档案 · 备注']
+  ];
+  for (const [key, label] of tabs) {
+    const b = button(label, () => switchDetailTab(key), 'detail-seg-btn' + (activeDetailTab === key ? ' active' : ''));
+    b.dataset.dtab = key;
+    b.setAttribute('role', 'tab');
+    b.setAttribute('aria-selected', String(activeDetailTab === key));
+    seg.append(b);
+  }
+  subbar.replaceChildren(statusStrip, seg);
+
+  // 分段 1：对话（首屏直达聊天记录）
+  const chatPane = node('div', 'detail-pane');
+  chatPane.dataset.dpane = 'chat';
+  chatPane.hidden = activeDetailTab !== 'chat';
+
+  if (row.error || row.pending) {
+    const banner = node('div', 'detail-inline-banner' + (row.error ? ' err' : ''), row.error || '有新消息待汇总，可点右上角星标立即汇总');
+    chatPane.append(banner);
+  }
+  if (report?.next_step && row.handled !== report.id) {
+    const tip = node('button', 'detail-next-banner');
+    tip.type = 'button';
+    tip.append(
+      node('span', 'detail-next-kicker', '建议跟进'),
+      node('span', 'detail-next-text', report.next_step)
+    );
+    tip.addEventListener('click', () => switchDetailTab('insight'));
+    chatPane.append(tip);
+  }
+
   const list = node('div');
   list.id = 'evidence-messages';
-  list.append(...data.messages.map(message => renderMessage(message, row)));
-  scroll.append(list);
-  if (data.more) {
+  if (data.more && data.messages.length) {
     let before = data.messages[0].id;
     const more = button('加载更早的消息', async () => {
       const batch = await api('/api/workbench/detail' + params({user, cid, before}));
@@ -522,10 +643,57 @@ async function openDetail(row, checked = true) {
       list.prepend(...batch.messages.filter(message => !list.querySelector('[data-message-id="' + message.id + '"]'))
         .map(message => renderMessage(message, row)));
       more.hidden = !batch.more;
-    });
-    scroll.insertBefore(more, list);
+    }, 'load-earlier-btn');
+    chatPane.append(more);
   }
-  scroll.scrollTop = previousScroll;
+  if (data.messages.length) {
+    list.append(...data.messages.map(message => renderMessage(message, row)));
+  } else {
+    list.append(node('div', 'empty', '暂无同步到的消息记录'));
+  }
+  chatPane.append(list);
+
+  // 分段 2：概要 · 商品
+  const insightPane = node('div', 'detail-pane');
+  insightPane.dataset.dpane = 'insight';
+  insightPane.hidden = activeDetailTab !== 'insight';
+
+  if (report) {
+    insightPane.append(reportBlock(report, row));
+  } else {
+    const emptyRep = node('div', 'detail-empty-box');
+    emptyRep.append(
+      node('p', '', '还没有 AI 汇总概要。'),
+      button('立即生成概要', () => runBtn?.click(), 'button primary')
+    );
+    insightPane.append(emptyRep);
+  }
+  const prodSec = renderCustomerProducts(products);
+  if (prodSec) insightPane.append(prodSec);
+  if (data.reports.length > 1) {
+    const history = node('details', 'detail-history');
+    history.append(node('summary', '', `查看更早的 ${data.reports.length - 1} 轮历史概要`));
+    history.append(...data.reports.slice(1).map(item => reportBlock(item, row, false)));
+    insightPane.append(history);
+  }
+
+  // 分段 3：档案 · 备注
+  const profilePane = node('div', 'detail-pane');
+  profilePane.dataset.dpane = 'profile';
+  profilePane.hidden = activeDetailTab !== 'profile';
+  profilePane.append(renderCustomerProfilePane(data, user, cid, row, renderStripTags));
+
+  scroll.replaceChildren(chatPane, insightPane, profilePane);
+  renderDetailComposer(user, cid);
+
+  if (isSame) {
+    scroll.scrollTop = previousScroll;
+  } else if (activeDetailTab === 'chat') {
+    requestAnimationFrame(() => { scroll.scrollTop = scroll.scrollHeight; });
+  } else {
+    scroll.scrollTop = 0;
+  }
+
   if (checked && report && row.checked !== report.id) {
     await api('/api/workbench/mark', {user, cid, report: report.id, field: 'checked'}).catch(() => {});
     row.checked = report.id;
