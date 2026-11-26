@@ -445,6 +445,25 @@ function renderDraftCard(user, cid) {
   return card;
 }
 
+function renderCustomerProducts(products) {
+  if (!Array.isArray(products) || !products.length) return null;
+  const sec = node('section', 'section-block');
+  sec.style.marginBottom = '0';
+  const h = node('h2', '', '该买家咨询过的商品');
+  h.append(node('small', '', `${products.length} 款`));
+  sec.append(h);
+  for (const p of products) {
+    const row = node('div', 'prod-row');
+    const info = node('div', 'prod-info');
+    info.append(node('span', 'prod-title', p.title));
+    const sub = [p.price, p.moq ? 'MOQ ' + p.moq : ''].filter(Boolean).join(' · ');
+    if (sub) info.append(node('span', 'prod-sub', sub));
+    row.append(info, node('span', 'prod-meta', `${p.count} 次`));
+    sec.append(row);
+  }
+  return sec;
+}
+
 async function openDetail(row, checked = true) {
   const request = ++detailRequest;
   const scroll = $('detail-scroll');
@@ -473,7 +492,11 @@ async function openDetail(row, checked = true) {
   feedback.id = 'detail-feedback';
   feedback.setAttribute('role', 'status');
   const report = data.reports[0];
-  scroll.replaceChildren(renderCustomerCard(data, user, cid, row), renderDraftCard(user, cid), top, feedback);
+  const prodSec = renderCustomerProducts(data.products);
+  const blocks = [renderCustomerCard(data, user, cid, row)];
+  if (prodSec) blocks.push(prodSec);
+  blocks.push(renderDraftCard(user, cid), top, feedback);
+  scroll.replaceChildren(...blocks);
   if (report) {
     scroll.append(reportBlock(report, row));
     if (data.reports.length > 1) {

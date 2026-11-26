@@ -24,7 +24,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 from ai_gateway import AIError, PROTOCOLS, request_model
-from analytics import compute_analytics, export_customers_csv
+from analytics import compute_analytics, customer_products, export_customers_csv
 from workbench import Workbench, parse_summary
 from workbench_media import card_payload
 
@@ -892,6 +892,7 @@ class Handler(BaseHTTPRequestHandler):
                 'SELECT COUNT(*) total_messages, MIN(COALESCE(msg_time, captured_at)) first_at, MAX(COALESCE(msg_time, captured_at)) last_at FROM messages WHERE user_id=? AND cid=?',
                 (user, cid))
             res['stats'] = dict(stats[0]) if stats else {'total_messages': 0, 'first_at': None, 'last_at': None}
+            res['products'] = customer_products(self.store, user, cid)
             return self._json(res)
         if path == '/api/workbench/message':
             return self._json(wb.evidence(value('user'), value('cid'), int(value('id', '0'))))

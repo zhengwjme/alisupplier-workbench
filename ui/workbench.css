@@ -438,7 +438,21 @@ input:not([type=checkbox]):focus, select:focus, textarea:focus { border-color: v
   color: var(--ink);
   background: var(--paper);
 }
-.detail[open] { display: flex; flex-direction: column; }
+@keyframes slideInRight {
+  from { transform: translateX(26px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+@keyframes fadeLift {
+  from { transform: translateY(6px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.detail[open] { display: flex; flex-direction: column; animation: slideInRight 200ms cubic-bezier(0.22, 1, 0.36, 1); }
+#work-screen:not([hidden]), #analytics-screen:not([hidden]), #settings-screen:not([hidden]) { animation: fadeLift 160ms ease-out; }
+.thread:active { transform: scale(0.992); }
+.circle-btn:active, .pill-btn:active, .button:active { transform: scale(0.96); }
+@media (prefers-reduced-motion: reduce) {
+  .detail[open], #work-screen:not([hidden]), #analytics-screen:not([hidden]), #settings-screen:not([hidden]) { animation: none; }
+}
 .detail::backdrop { background: rgba(27, 37, 65, 0.22); backdrop-filter: blur(2px); }
 .detail-head {
   display: flex;

@@ -86,6 +86,29 @@ def _country_label(code):
     return (code, '其他地区')
 
 
+def extract_products(payload_str):
+    return _extract_products(payload_str)
+
+
+def customer_products(store, user, cid):
+    rows = store.q(
+        "SELECT payload FROM messages WHERE user_id=? AND cid=? AND kind='card' AND payload IS NOT NULL ORDER BY id DESC",
+        (user, cid)
+    )
+    items = {}
+    for r in rows:
+        for pr in _extract_products(r['payload']):
+            entry = items.setdefault(pr['key'], {
+                'id': pr['id'], 'title': pr['title'], 'price': pr['price'], 'moq': pr['moq'], 'count': 0
+            })
+            entry['count'] += 1
+            if not entry['price'] and pr['price']:
+                entry['price'] = pr['price']
+            if not entry['moq'] and pr['moq']:
+                entry['moq'] = pr['moq']
+    return sorted(items.values(), key=lambda x: -x['count'])[:12]
+
+
 def _extract_products(payload_str):
     if not payload_str:
         return []
