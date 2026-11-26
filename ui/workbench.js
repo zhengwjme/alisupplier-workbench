@@ -113,12 +113,42 @@ async function loadList(append = false) {
   renderList();
 }
 
+function renderFrida(frida) {
+  const btn = $('frida-toggle');
+  if (!btn || !frida) return;
+  btn.dataset.enabled = frida.enabled ? '1' : '0';
+  btn.classList.toggle('primary', Boolean(frida.enabled && frida.state === 'attached'));
+  if (!frida.available) {
+    btn.textContent = '集成不可用';
+    btn.disabled = true;
+    btn.title = '未检测到 frida CLI 或 frida_agent.js';
+    return;
+  }
+  btn.disabled = false;
+  if (!frida.enabled) {
+    btn.textContent = '启用集成';
+    btn.title = '点击启用：在阿里卖家点击买家时自动打开对应聊天详情';
+  } else if (frida.state === 'attached') {
+    btn.textContent = '联动中' + (frida.pid ? ` (${frida.pid})` : '');
+    btn.title = '已连接阿里卖家，点击可停用集成';
+  } else if (frida.state === 'attaching') {
+    btn.textContent = '正在连接…';
+  } else if (frida.state === 'error') {
+    btn.textContent = '集成异常';
+    btn.title = frida.error || 'Frida 联动异常';
+  } else {
+    btn.textContent = '等待阿里卖家…';
+    btn.title = '已启用集成，等待阿里卖家启动';
+  }
+}
+
 async function status() {
   const data = await api('/api/status');
   const connection = $('connection');
   const labels = {tailing: '采集运行中', no_log: '未找到日志', starting: '采集启动中', stopped: '采集已停止'};
   connection.replaceChildren(node('span'), document.createTextNode(labels[data.state] || '服务在线'));
   connection.classList.toggle('online', data.state === 'tailing');
+  renderFrida(data.frida);
 }
 
 async function accounts() {
@@ -143,9 +173,14 @@ function reportBlock(report, row, latest = true) {
   const el = node('article', 'report');
   el.append(node('div', 'eyebrow', '已汇总到 ' + formatTime(report.covered_at, true) +
     ' · 更新于 ' + formatTime(report.created_at, true)));
-  const fields = [['本轮变化', 'changes'], ['当前概要', 'summary'], ['建议跟进', 'next_step'], ['待核对', 'review']];
+  const fields = [['当前概要', 'summary'], ['本轮变化', 'changes'], ['待核对', 'review']];
   for (const [title, key] of fields) {
     if (report[key]) el.append(node('h3', '', title), node('p', '', report[key]));
+  }
+  if (report.next_step) {
+    const box = node('div', 'next-step-box');
+    box.append(node('h3', '', '建议跟进'), node('p', '', report.next_step));
+    el.append(box);
   }
   if (report.attachments?.length) {
     el.append(node('p', 'attachment-note muted', report.attachments.length + ' 条附件在本次汇总时待查看'));
@@ -241,6 +276,61 @@ async function openEvidence(row, ids) {
   list.querySelector('.message.active')?.scrollIntoView({block: 'nearest'});
 }
 
+function renderCustomerCard(data, user, cid, row) {
+  const c = data.customer || {};
+  const stats = data.stats || {};
+  const name = c.display_name || row.peer || cid;
+  const uid = c.uid || (cid.includes('-') ? cid.split('-')[0] : '');
+  const domain = cid.includes('@') ? cid.split('@').pop() : '';
+
+  const card = node('section', 'customer-card');
+  const top = node('div', 'customer-top');
+  const avatar = node('div', 'customer-avatar');
+  if (c.avatar_url && /^https?:\/\//.test(c.avatar_url)) {
+    const img = node('img');
+    img.src = c.avatar_url;
+    img.alt = name;
+    img.addEventListener('error', () => { avatar.textContent = (name || '?').slice(0, 1).toUpperCase(); });
+    avatar.append(img);
+  } else {
+    avatar.textContent = (name || '?').slice(0, 1).toUpperCase();
+  }
+  const titleWrap = node('div');
+  titleWrap.append(
+    node('div', 'customer-name', name),
+    node('div', 'customer-sub', [uid ? '买家UID: ' + uid : '', domain ? '渠道: ' + domain : ''].filter(Boolean).join(' · ') || cid)
+  );
+  top.append(avatar, titleWrap);
+  card.append(top);
+
+  const grid = node('div', 'customer-grid');
+  const kv = (targetGrid, label, val) => {
+    if (val === null || val === undefined || val === '') return;
+    const item = node('div', 'customer-kv');
+    item.append(node('span', '', label), node('strong', '', String(val)));
+    targetGrid.append(item);
+  };
+  kv(grid, '累计消息', stats.total_messages ? stats.total_messages + ' 条' : '暂无');
+  kv(grid, '最近消息', stats.last_at ? formatTime(stats.last_at, true) : '暂无');
+  if (stats.first_at) kv(grid, '首次互动', formatTime(stats.first_at, true));
+  if (c.updated_at) kv(grid, '资料同步', formatTime(c.updated_at, true));
+  if (c.extra && typeof c.extra === 'object') {
+    for (const [k, v] of Object.entries(c.extra)) {
+      if (v && typeof v === 'string' && !k.startsWith('_')) kv(grid, k, v);
+    }
+  }
+  card.append(grid);
+
+  const more = node('details', 'customer-more');
+  more.append(node('summary', '', '账号与会话标识'));
+  const moreGrid = node('div', 'customer-grid');
+  kv(moreGrid, '卖家账号', user);
+  kv(moreGrid, '会话 CID', cid);
+  more.append(moreGrid);
+  card.append(more);
+  return card;
+}
+
 async function openDetail(row, checked = true) {
   const request = ++detailRequest;
   const scroll = $('detail-scroll');
@@ -252,6 +342,13 @@ async function openDetail(row, checked = true) {
   if (!$('detail').open) $('detail').showModal();
   const data = await api('/api/workbench/detail' + params({user, cid}));
   if (request !== detailRequest || !$('detail').open) return;
+  if (data.customer?.display_name) {
+    $('detail-title').textContent = data.customer.display_name;
+    row.peer = data.customer.display_name;
+  }
+  const customerMeta = [];
+  if (data.customer?.uid) customerMeta.push('买家ID: ' + data.customer.uid);
+  $('detail-account').textContent = customerMeta.length ? `${user} · ${customerMeta.join(' · ')}` : user;
   const top = node('div', 'actions');
   top.append(button('立即汇总', async () => {
     const result = await api('/api/workbench/run', {user, cid});
@@ -262,7 +359,7 @@ async function openDetail(row, checked = true) {
   feedback.id = 'detail-feedback';
   feedback.setAttribute('role', 'status');
   const report = data.reports[0];
-  scroll.replaceChildren(top, feedback);
+  scroll.replaceChildren(renderCustomerCard(data, user, cid, row), top, feedback);
   if (report) {
     scroll.append(reportBlock(report, row));
     if (data.reports.length > 1) {
@@ -463,12 +560,69 @@ $('accounts').addEventListener('change', () => selectFilter(state.filter));
 $('search').addEventListener('input', () => selectFilter(state.filter));
 document.querySelectorAll('[data-filter]').forEach(el => el.addEventListener('click', () => selectFilter(el.dataset.filter)));
 
+const fridaBtn = $('frida-toggle');
+if (fridaBtn) {
+  fridaBtn.addEventListener('click', async () => {
+    const next = fridaBtn.dataset.enabled !== '1';
+    fridaBtn.disabled = true;
+    try {
+      const res = await api('/api/workbench/frida', { enabled: next });
+      renderFrida(res.frida);
+      notice(next ? '已启用阿里卖家联动集成。' : '已停用阿里卖家联动集成。');
+    } catch (error) {
+      notice(error.message);
+    } finally {
+      fridaBtn.disabled = false;
+    }
+  });
+}
+
+if (window.alisupplierDesktop?.setWidgetMode) {
+  const widgetBtn = $('widget-toggle');
+  const pinBtn = $('pin-toggle');
+  const syncWindowMode = mode => {
+    if (!mode) return;
+    document.body.classList.toggle('widget-mode', Boolean(mode.widget));
+    if (widgetBtn) {
+      widgetBtn.hidden = false;
+      widgetBtn.textContent = mode.widget ? '展开大窗' : '迷你悬浮';
+      widgetBtn.classList.toggle('primary', Boolean(mode.widget));
+    }
+    if (pinBtn) {
+      pinBtn.hidden = false;
+      pinBtn.textContent = mode.alwaysOnTop ? '已置顶' : '置顶';
+      pinBtn.classList.toggle('primary', Boolean(mode.alwaysOnTop));
+    }
+  };
+  window.alisupplierDesktop.getWindowMode?.().then(syncWindowMode).catch(() => {});
+  widgetBtn?.addEventListener('click', async () => {
+    const next = !document.body.classList.contains('widget-mode');
+    syncWindowMode(await window.alisupplierDesktop.setWidgetMode(next));
+  });
+  pinBtn?.addEventListener('click', async () => {
+    const next = !pinBtn.classList.contains('primary');
+    syncWindowMode(await window.alisupplierDesktop.setAlwaysOnTop(next));
+  });
+}
+
 $('today').textContent = new Date().toLocaleDateString('zh-CN', {month: 'long', day: 'numeric', weekday: 'long'});
 let refresh;
 const stream = new EventSource('/api/stream');
 stream.onmessage = event => {
   try {
     const data = JSON.parse(event.data);
+    if (data.kind === 'frida_status' && data.frida) {
+      renderFrida(data.frida);
+      return;
+    }
+    if (data.kind === 'open_chat' && data.user_id && data.cid) {
+      const existing = state.rows.find(r => r.user_id === data.user_id && r.cid === data.cid);
+      const targetRow = existing || { user_id: data.user_id, cid: data.cid, peer: data.peer || data.cid };
+      if (data.peer) targetRow.peer = data.peer;
+      openDetail(targetRow, false);
+      loadList().catch(() => {});
+      return;
+    }
     if (data.kind === 'workbench' || data.kind === 'message') {
       clearTimeout(refresh);
       refresh = setTimeout(() => {

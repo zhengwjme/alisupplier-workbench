@@ -12,7 +12,9 @@ import json
 import os
 from contextlib import contextmanager
 import re
+import shutil
 import sqlite3
+import subprocess
 import sys
 import threading
 import time
@@ -106,6 +108,16 @@ CREATE TABLE IF NOT EXISTS raw_events(
   ts INTEGER, kind TEXT, payload TEXT
 );
 CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT);
+CREATE TABLE IF NOT EXISTS customers(
+  user_id TEXT NOT NULL,
+  cid TEXT NOT NULL,
+  uid TEXT,
+  display_name TEXT,
+  avatar_url TEXT,
+  extra TEXT,
+  updated_at INTEGER,
+  PRIMARY KEY(user_id, cid)
+);
 """
 
 
@@ -169,6 +181,38 @@ class Store(object):
         with self.lock, self.db:
             self.db.execute('INSERT INTO raw_events(ts,kind,payload) VALUES(?,?,?)', (now(), kind, payload[:4000]))
             self.db.execute('DELETE FROM raw_events WHERE id <= (SELECT MAX(id)-3000 FROM raw_events)')
+
+    def upsert_customer(self, user_id, cid, uid=None, display_name=None, avatar_url=None, extra=None):
+        if not user_id or not cid:
+            return
+        extra_json = json.dumps(extra, ensure_ascii=False) if isinstance(extra, dict) else (extra or None)
+        with self.lock, self.db:
+            self.db.execute(
+                '''INSERT INTO customers(user_id, cid, uid, display_name, avatar_url, extra, updated_at)
+                   VALUES(?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(user_id, cid) DO UPDATE SET
+                     uid=COALESCE(NULLIF(excluded.uid,''), customers.uid),
+                     display_name=COALESCE(NULLIF(excluded.display_name,''), customers.display_name),
+                     avatar_url=COALESCE(NULLIF(excluded.avatar_url,''), customers.avatar_url),
+                     extra=COALESCE(NULLIF(excluded.extra,''), customers.extra),
+                     updated_at=excluded.updated_at''',
+                (user_id, cid, uid or None, display_name or None, avatar_url or None, extra_json, now()))
+
+    def get_customer(self, user_id, cid):
+        rows = self.q('SELECT * FROM customers WHERE user_id=? AND cid=?', (user_id, cid))
+        if not rows:
+            return None
+        d = dict(rows[0])
+        if d.get('extra'):
+            try:
+                d['extra'] = json.loads(d['extra'])
+            except Exception:
+                pass
+        return d
+
+    def customer_names(self):
+        rows = self.q("SELECT user_id, cid, display_name FROM customers WHERE display_name IS NOT NULL AND display_name<>''")
+        return {(r['user_id'], r['cid']): r['display_name'] for r in rows}
 
 
 # ---------------------------------------------------------------- parsing
@@ -635,6 +679,7 @@ class Handler(BaseHTTPRequestHandler):
     store = None
     watcher = None
     workbench = None
+    frida = None
     desktop_token = None
 
     def log_message(self, fmt, *args):
@@ -697,6 +742,7 @@ class Handler(BaseHTTPRequestHandler):
             if p == '/api/status':
                 st = dict(self.hub.status)
                 st['db'] = self.store.path
+                st['frida'] = Handler.frida.snapshot() if Handler.frida else {'available': False, 'enabled': False, 'state': 'disabled'}
                 return self._json(st)
             if p == '/api/users':
                 return self._json([dict(r) for r in self.store.q(
@@ -785,11 +831,19 @@ class Handler(BaseHTTPRequestHandler):
             offset = max(0, int(value('offset', '0')))
             count = max(1, min(500, int(value('count', '100'))))
             rows = wb.listing(value('user'), value('q')[:200], count + 1, offset, value('filter'))
+            names = self.store.customer_names()
             for row in rows:
-                row['peer'] = peer_of(row['cid'], row['user_id'])
+                row['peer'] = names.get((row['user_id'], row['cid'])) or peer_of(row['cid'], row['user_id'])
             return self._json({'rows': rows[:count], 'more': len(rows) > count})
         if path == '/api/workbench/detail':
-            return self._json(wb.detail(value('user'), value('cid'), int(value('before', '0'))))
+            user, cid = value('user'), value('cid')
+            res = wb.detail(user, cid, int(value('before', '0')))
+            res['customer'] = self.store.get_customer(user, cid)
+            stats = self.store.q(
+                'SELECT COUNT(*) total_messages, MIN(COALESCE(msg_time, captured_at)) first_at, MAX(COALESCE(msg_time, captured_at)) last_at FROM messages WHERE user_id=? AND cid=?',
+                (user, cid))
+            res['stats'] = dict(stats[0]) if stats else {'total_messages': 0, 'first_at': None, 'last_at': None}
+            return self._json(res)
         if path == '/api/workbench/message':
             return self._json(wb.evidence(value('user'), value('cid'), int(value('id', '0'))))
         if path == '/api/workbench/image':
@@ -822,9 +876,28 @@ class Handler(BaseHTTPRequestHandler):
                     512)
                 parse_summary(result, set())
             return self._json({'ok': True})
-        user, cid = values.get('user'), values.get('cid')
+        if path == '/api/workbench/frida':
+            if not Handler.frida:
+                raise ValueError('Frida 联动模块未初始化')
+            enabled = bool(values.get('enabled'))
+            Handler.frida.set_enabled(enabled)
+            return self._json({'ok': True, 'frida': Handler.frida.snapshot()})
+        user = values.get('user') or values.get('user_id')
+        cid = values.get('cid')
         if not isinstance(user, str) or not isinstance(cid, str) or not user or not cid:
             raise ValueError('请选择会话')
+        if path == '/api/workbench/active-chat':
+            display_name = (values.get('display_name') or '').strip() or None
+            uid = (values.get('uid') or '').strip() or None
+            avatar_url = (values.get('avatar_url') or '').strip() or None
+            extra = values.get('extra') if isinstance(values.get('extra'), dict) else None
+            self.store.upsert_customer(user, cid, uid=uid, display_name=display_name,
+                                       avatar_url=avatar_url, extra=extra)
+            customer = self.store.get_customer(user, cid)
+            peer = (customer and customer.get('display_name')) or display_name or peer_of(cid, user)
+            self.hub.publish({'kind': 'open_chat', 'user_id': user, 'cid': cid,
+                              'peer': peer, 'customer': customer})
+            return self._json({'ok': True, 'user_id': user, 'cid': cid, 'peer': peer, 'customer': customer})
         if path == '/api/workbench/run':
             if not wb.settings.snapshot()['text_profile']:
                 raise ValueError('请先在设置里选择文字模型')
@@ -921,6 +994,152 @@ class Handler(BaseHTTPRequestHandler):
                 self.hub.subs.discard(q)
 
 
+class FridaBridge(object):
+    """在工作台进程内管理 Frida 联动监听，将阿里卖家点击事件实时推送到前端。"""
+    EVT_PREFIX = '__ALISUPPLIER_EVT__'
+
+    def __init__(self, store, hub):
+        self.store = store
+        self.hub = hub
+        self.lock = threading.Lock()
+        self.enabled = False
+        self.state = 'disabled'
+        self.pid = None
+        self.error = ''
+        self.proc = None
+        self.stop_flag = threading.Event()
+        self.thread = None
+        self.agent_path = os.path.join(HERE, 'frida_agent.js')
+
+    def _find_frida(self):
+        for cand in (
+            os.path.join(HERE, 'frida'),
+            shutil.which('frida'),
+            os.path.expanduser('~/.local/bin/frida'),
+            '/opt/homebrew/bin/frida',
+            '/usr/local/bin/frida',
+        ):
+            if cand and os.path.isfile(cand) and os.access(cand, os.X_OK):
+                return cand
+        return None
+
+    def _find_target_pid(self):
+        for name in ('阿里卖家', 'AliSupplier'):
+            try:
+                out = subprocess.check_output(['pgrep', '-x', name], text=True).strip()
+                if out:
+                    return int(out.splitlines()[0])
+            except Exception:
+                pass
+        return None
+
+    def snapshot(self):
+        with self.lock:
+            return {
+                'available': bool(self._find_frida() and os.path.isfile(self.agent_path)),
+                'enabled': self.enabled,
+                'state': self.state,
+                'pid': self.pid,
+                'error': self.error,
+            }
+
+    def _set_state(self, state, pid=None, error=''):
+        with self.lock:
+            self.state = state
+            self.pid = pid
+            self.error = error
+        self.hub.publish({'kind': 'frida_status', 'frida': self.snapshot()})
+
+    def set_enabled(self, enabled):
+        with self.lock:
+            if enabled == self.enabled:
+                return
+            self.enabled = bool(enabled)
+            if not self.enabled:
+                self.stop_flag.set()
+                proc = self.proc
+                self.proc = None
+                if proc and proc.poll() is None:
+                    proc.terminate()
+                self.state = 'disabled'
+                self.pid = None
+                self.error = ''
+                self.hub.publish({'kind': 'frida_status', 'frida': {
+                    'available': bool(self._find_frida() and os.path.isfile(self.agent_path)),
+                    'enabled': False, 'state': 'disabled', 'pid': None, 'error': ''
+                }})
+                return
+            self.stop_flag.clear()
+            self.thread = threading.Thread(target=self._run, daemon=True)
+            self.thread.start()
+
+    def _run(self):
+        frida_bin = self._find_frida()
+        if not frida_bin or not os.path.isfile(self.agent_path):
+            with self.lock:
+                self.enabled = False
+            self._set_state('error', None, '未找到 frida CLI 或 frida_agent.js')
+            return
+        while not self.stop_flag.is_set():
+            pid = self._find_target_pid()
+            if not pid:
+                self._set_state('waiting', None, '')
+                self.stop_flag.wait(2.0)
+                continue
+            self._set_state('attaching', pid, '')
+            try:
+                proc = subprocess.Popen(
+                    [frida_bin, '-p', str(pid), '-l', self.agent_path],
+                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, bufsize=1,
+                )
+            except Exception as exc:
+                self._set_state('error', pid, str(exc))
+                self.stop_flag.wait(3.0)
+                continue
+            with self.lock:
+                if not self.enabled or self.stop_flag.is_set():
+                    proc.terminate()
+                    break
+                self.proc = proc
+            for line in proc.stdout:
+                if self.stop_flag.is_set():
+                    break
+                idx = line.find(self.EVT_PREFIX)
+                if idx == -1:
+                    continue
+                try:
+                    evt = json.loads(line[idx + len(self.EVT_PREFIX):].strip())
+                except Exception:
+                    continue
+                if evt.get('event') == 'ready':
+                    self._set_state('attached', pid, '')
+                elif evt.get('event') == 'active_chat':
+                    user_id = evt.get('user_id')
+                    cid = evt.get('cid')
+                    if user_id and cid:
+                        display_name = (evt.get('display_name') or '').strip() or None
+                        uid = (evt.get('uid') or '').strip() or None
+                        avatar_url = (evt.get('avatar_url') or '').strip() or None
+                        extra = evt.get('extra') if isinstance(evt.get('extra'), dict) else None
+                        self.store.upsert_customer(user_id, cid, uid=uid, display_name=display_name,
+                                                   avatar_url=avatar_url, extra=extra)
+                        customer = self.store.get_customer(user_id, cid)
+                        peer = (customer and customer.get('display_name')) or display_name or peer_of(cid, user_id)
+                        self.hub.publish({'kind': 'open_chat', 'user_id': user_id, 'cid': cid,
+                                          'peer': peer, 'customer': customer})
+            proc.wait()
+            with self.lock:
+                if self.proc is proc:
+                    self.proc = None
+            if not self.stop_flag.is_set():
+                self._set_state('waiting', None, '')
+                self.stop_flag.wait(2.0)
+
+    def stop(self):
+        self.set_enabled(False)
+
+
 @contextmanager
 def own_database(path):
     """Prevent two services from claiming the same durable queue."""
@@ -977,9 +1196,11 @@ def serve(args):
     store = Store(args.db)
     hub = Hub(store)
     workbench = Workbench(store, hub, media_dir())
+    frida_bridge = FridaBridge(store, hub)
     Handler.hub = hub
     Handler.store = store
     Handler.workbench = workbench
+    Handler.frida = frida_bridge
 
     print('数据库: %s' % args.db)
     print('工作台: http://127.0.0.1:%d/' % srv.server_port)
@@ -1000,6 +1221,17 @@ def serve(args):
             print('跳过账号归属不明确的卡片库: %s' % account)
     workbench.start()
 
+    runtime_file = os.path.join(os.path.dirname(os.path.abspath(args.db)), 'runtime.json')
+    try:
+        rt_data = {'port': srv.server_port, 'pid': os.getpid()}
+        if Handler.desktop_token:
+            rt_data['token'] = Handler.desktop_token.decode('ascii')
+        with open(runtime_file, 'w', encoding='utf-8') as f:
+            json.dump(rt_data, f)
+        os.chmod(runtime_file, 0o600)
+    except OSError:
+        runtime_file = None
+
     if args.desktop:
         threading.Thread(target=stop_when_parent_exits, args=(srv,), daemon=True).start()
         print('ALISUPPLIER_DESKTOP_READY ' + json.dumps({'port': srv.server_port}), flush=True)
@@ -1010,6 +1242,12 @@ def serve(args):
     except KeyboardInterrupt:
         pass
     finally:
+        if runtime_file and os.path.exists(runtime_file):
+            try:
+                os.remove(runtime_file)
+            except OSError:
+                pass
+        frida_bridge.stop()
         workbench.stop.set()
         Handler.watcher.stop_flag.set()
         srv.server_close()

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain, nativeImage, session } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, nativeImage, screen, session } = require('electron');
 const path = require('node:path');
 const { readFileSync } = require('node:fs');
 const { pathToFileURL } = require('node:url');
@@ -16,6 +16,8 @@ function createDesktop(options = {}) {
   let isQuitting = false;
   let desktopSession;
   let icon;
+  let widgetMode = true;
+  let alwaysOnTop = false;
 
   function allowed(url) {
     if (url === launcherUrl) return true;
@@ -92,25 +94,61 @@ function createDesktop(options = {}) {
     Menu.setApplicationMenu(Menu.buildFromTemplate(template));
   }
 
+  function applyWidgetMode(enabled) {
+    widgetMode = Boolean(enabled);
+    if (!window || window.isDestroyed()) return { widget: widgetMode, alwaysOnTop };
+    const area = screen.getDisplayMatching(window.getBounds()).workArea;
+    if (widgetMode) {
+      window.setMinimumSize(320, 480);
+      const w = 360;
+      const h = Math.min(720, Math.max(540, area.height - 40));
+      const x = area.x + area.width - w - 12;
+      const y = area.y + Math.round((area.height - h) / 2);
+      window.setBounds({ x, y, width: w, height: h }, true);
+    } else {
+      window.setMinimumSize(405, 560);
+      const w = Math.min(1250, area.width - 40);
+      const h = Math.min(830, area.height - 40);
+      const x = area.x + Math.round((area.width - w) / 2);
+      const y = area.y + Math.round((area.height - h) / 2);
+      window.setBounds({ x, y, width: w, height: h }, true);
+    }
+    return { widget: widgetMode, alwaysOnTop };
+  }
+
+  function applyAlwaysOnTop(enabled) {
+    alwaysOnTop = Boolean(enabled);
+    if (window && !window.isDestroyed()) {
+      window.setAlwaysOnTop(alwaysOnTop, 'floating');
+    }
+    return { widget: widgetMode, alwaysOnTop };
+  }
+
   function installIpc() {
-    const handle = (name, operation) => ipcMain.handle('service:' + name, (event) => {
+    const handle = (name, operation) => ipcMain.handle('service:' + name, (event, arg) => {
       if (event.sender !== window?.webContents || event.senderFrame !== event.sender.mainFrame ||
           !allowed(event.senderFrame?.url || '')) throw new Error('无权访问服务控制');
-      return operation();
+      return operation(arg);
     });
     // Return before navigation replaces the renderer that initiated the request.
     handle('start', () => { setImmediate(() => void start()); });
     handle('stop', () => { setImmediate(() => void stop()); });
     handle('status', () => service.status);
     handle('menu', () => { Menu.buildFromTemplate(controlItems()).popup({ window }); });
+    handle('widget-mode', enabled => applyWidgetMode(enabled));
+    handle('always-on-top', enabled => applyAlwaysOnTop(enabled));
+    handle('window-mode', () => ({ widget: widgetMode, alwaysOnTop }));
   }
 
   function createWindow() {
     window = new BrowserWindow({
-      width: 1250, height: 830, minWidth: 405, minHeight: 560, show: false,
+      width: 360, height: 700, minWidth: 320, minHeight: 480, show: false,
       title: displayName, icon, backgroundColor: '#f8f8f4', autoHideMenuBar: process.platform === 'win32',
+      titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+      trafficLightPosition: process.platform === 'darwin' ? { x: 14, y: 14 } : undefined,
       webPreferences: rendererOptions(),
     });
+    applyWidgetMode(widgetMode);
     protect(window.webContents, true);
     window.once('ready-to-show', () => window.show());
     window.on('closed', () => { window = null; });
