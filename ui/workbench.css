@@ -16,7 +16,7 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 body { margin: 0; font: 14px/1.55 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; color: var(--text); background: var(--paper); }
-body::before { content: ""; position: fixed; inset: 0 0 auto 0; height: 38px; -webkit-app-region: drag; pointer-events: none; z-index: 20; }
+body.platform-darwin::before { content: ""; position: fixed; inset: 0 0 auto 0; height: 38px; -webkit-app-region: drag; pointer-events: none; z-index: 20; }
 button, input, select, textarea, a, label, summary { -webkit-app-region: no-drag; }
 h1, h2, h3, p { margin: 0; }
 button, input, select, textarea { color: inherit; font: inherit; }
@@ -25,7 +25,8 @@ button:disabled { cursor: wait; opacity: .6; }
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid #638a75; outline-offset: 3px; }
 a { color: inherit; }
 .shell { min-height: 100vh; }
-.navigation { position: fixed; inset: 0 auto 0 0; width: var(--nav-width); display: flex; flex-direction: column; padding: 46px 17px 22px; color: #f3f8f0; background: var(--nav); }
+.navigation { position: fixed; inset: 0 auto 0 0; width: var(--nav-width); display: flex; flex-direction: column; padding: 30px 17px 22px; color: #f3f8f0; background: var(--nav); }
+body.platform-darwin .navigation { padding-top: 46px; }
 .identity { display: flex; align-items: center; gap: 12px; padding: 0 6px; font-size: 17px; margin-bottom: 54px; }
 .identity small { display: block; color: var(--nav-dim); font-size: 12px; letter-spacing: .05em; }
 .logomark { width: 39px; height: 39px; display: grid; place-items: center; background: #d4e6c9; color: #234230; border-radius: 12px; font-size: 24px; }
@@ -96,6 +97,23 @@ input:not([type=checkbox]), select, textarea, .button { border: 1px solid var(--
 .customer-more { margin-top: 8px; padding-top: 6px; border-top: 1px dashed var(--line); font-size: 12px; color: var(--muted); }
 .customer-more summary { cursor: pointer; user-select: none; }
 .customer-more .customer-grid { border-top: 0; padding-top: 6px; }
+.crm-panel { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); display: grid; gap: 8px; }
+.crm-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.crm-row select { padding: 4px 8px; font-size: 12px; }
+.tag-chip { border: 1px solid var(--line); background: var(--paper); color: var(--muted); border-radius: 99px; padding: 2px 9px; font-size: 11px; }
+.tag-chip.active { background: var(--soft); border-color: var(--accent); color: var(--accent); font-weight: 650; }
+.crm-note { width: 100%; min-height: 46px; resize: vertical; font-size: 12px; padding: 6px 8px; }
+.draft-card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
+.draft-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-size: 13px; font-weight: 700; }
+.draft-input-row { display: flex; gap: 6px; }
+.draft-input-row input { flex: 1; font-size: 12px; padding: 6px 8px; }
+.draft-input-row button { white-space: nowrap; font-size: 12px; padding: 6px 10px; }
+.draft-list { display: grid; gap: 8px; margin-top: 10px; }
+.draft-item { border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; background: var(--paper); }
+.draft-item-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 5px; font-size: 12px; font-weight: 650; color: var(--accent); }
+.draft-item-en { font-size: 13px; white-space: pre-wrap; margin-bottom: 4px; color: var(--text); }
+.draft-item-zh { font-size: 11px; color: var(--muted); }
+.stage-pill { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 4px; background: var(--soft); color: var(--accent); margin-left: 6px; font-weight: 650; vertical-align: middle; }
 .report { padding: 15px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); margin-bottom: 14px; }
 .report h3 { font-size: 12px; color: var(--muted); margin: 10px 0 3px; text-transform: uppercase; letter-spacing: .03em; }
 .report .next-step-box { margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: var(--soft); border-left: 3px solid var(--accent); }
@@ -107,14 +125,18 @@ input:not([type=checkbox]), select, textarea, .button { border: 1px solid var(--
 .message.out { border-left-color: #6b9ec2; background: #f8fbfd; }
 .message.active { outline: 2px solid #72977f; }
 body.widget-mode .navigation { display: none; }
-body.widget-mode .main { margin-left: 0; padding: 40px 12px 16px; }
-body.widget-mode .heading { flex-direction: column; align-items: stretch; gap: 8px; margin-bottom: 12px; }
-body.widget-mode .heading h1 { font-size: 20px; margin: 2px 0; }
+body.widget-mode .main { margin-left: 0; padding: 12px 12px 16px; }
+body.platform-darwin.widget-mode .main { padding-top: 40px; }
+body.widget-mode .heading { flex-direction: column; align-items: stretch; gap: 6px; margin-bottom: 10px; }
+body.widget-mode .heading .eyebrow { display: none; }
+body.widget-mode .heading h1 { font-size: 18px; margin: 0; }
 body.widget-mode .heading p { display: none; }
-body.widget-mode .heading .actions { flex-wrap: wrap; justify-content: flex-start; gap: 6px; }
-body.widget-mode .heading .actions .button, body.widget-mode .heading .actions select { padding: 5px 8px; font-size: 12px; }
+body.widget-mode .heading .actions { flex-wrap: wrap; justify-content: flex-start; gap: 5px; }
+body.widget-mode .heading .actions .button, body.widget-mode .heading .actions select { padding: 4px 8px; font-size: 12px; }
+body.widget-mode #accounts, body.widget-mode #desktop-control { display: none; }
 body.widget-mode .detail { width: 100vw; border-left: 0; }
-body.widget-mode .detail-head { padding: 34px 14px 10px; }
+body.widget-mode .detail-head { padding: 12px 14px 10px; }
+body.platform-darwin.widget-mode .detail-head { padding-top: 34px; }
 body.widget-mode .detail-head #detail-account { display: none; }
 body.widget-mode .detail-head h2 { font-size: 16px; }
 body.widget-mode .detail-scroll { padding: 10px 12px 20px; }

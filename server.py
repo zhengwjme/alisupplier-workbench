@@ -139,6 +139,10 @@ class Store(object):
                 self.db.execute('ALTER TABLE messages ADD COLUMN %s TEXT' % col)
         if 'wb_passive' not in have:
             self.db.execute('ALTER TABLE messages ADD COLUMN wb_passive INTEGER NOT NULL DEFAULT 0')
+        have_cust = {r[1] for r in self.db.execute('PRAGMA table_info(customers)').fetchall()}
+        for col in ('stage', 'tags', 'note'):
+            if col not in have_cust:
+                self.db.execute('ALTER TABLE customers ADD COLUMN %s TEXT' % col)
         self.db.commit()
 
     def q(self, sql, args=()):
@@ -203,16 +207,53 @@ class Store(object):
         if not rows:
             return None
         d = dict(rows[0])
-        if d.get('extra'):
-            try:
-                d['extra'] = json.loads(d['extra'])
-            except Exception:
-                pass
+        for field in ('extra', 'tags'):
+            if d.get(field) and isinstance(d[field], str):
+                try:
+                    d[field] = json.loads(d[field])
+                except Exception:
+                    pass
+        if not isinstance(d.get('tags'), list):
+            d['tags'] = []
         return d
 
+    def update_customer_meta(self, user_id, cid, stage=None, tags=None, note=None):
+        if not user_id or not cid:
+            return
+        tags_list = [str(t).strip()[:30] for t in (tags or []) if str(t).strip()][:12] if isinstance(tags, list) else None
+        tags_json = json.dumps(tags_list, ensure_ascii=False) if tags_list is not None else None
+        stage_val = str(stage).strip()[:30] if stage is not None else None
+        note_val = str(note).strip()[:1000] if note is not None else None
+        with self.lock, self.db:
+            self.db.execute(
+                '''INSERT INTO customers(user_id, cid, stage, tags, note, updated_at)
+                   VALUES(?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(user_id, cid) DO UPDATE SET
+                     stage=CASE WHEN ? IS NOT NULL THEN ? ELSE customers.stage END,
+                     tags=CASE WHEN ? IS NOT NULL THEN ? ELSE customers.tags END,
+                     note=CASE WHEN ? IS NOT NULL THEN ? ELSE customers.note END,
+                     updated_at=excluded.updated_at''',
+                (user_id, cid, stage_val, tags_json, note_val, now(),
+                 stage_val, stage_val, tags_json, tags_json, note_val, note_val))
+
     def customer_names(self):
-        rows = self.q("SELECT user_id, cid, display_name FROM customers WHERE display_name IS NOT NULL AND display_name<>''")
-        return {(r['user_id'], r['cid']): r['display_name'] for r in rows}
+        rows = self.q("SELECT user_id, cid, display_name, stage, tags FROM customers")
+        out = {}
+        for r in rows:
+            tags = []
+            if r['tags']:
+                try:
+                    parsed = json.loads(r['tags'])
+                    if isinstance(parsed, list):
+                        tags = parsed
+                except Exception:
+                    pass
+            out[(r['user_id'], r['cid'])] = {
+                'display_name': r['display_name'] or '',
+                'stage': r['stage'] or '',
+                'tags': tags,
+            }
+        return out
 
 
 # ---------------------------------------------------------------- parsing
@@ -831,9 +872,14 @@ class Handler(BaseHTTPRequestHandler):
             offset = max(0, int(value('offset', '0')))
             count = max(1, min(500, int(value('count', '100'))))
             rows = wb.listing(value('user'), value('q')[:200], count + 1, offset, value('filter'))
-            names = self.store.customer_names()
+            cmap = self.store.customer_names()
             for row in rows:
-                row['peer'] = names.get((row['user_id'], row['cid'])) or peer_of(row['cid'], row['user_id'])
+                info = cmap.get((row['user_id'], row['cid'])) or {}
+                row['peer'] = info.get('display_name') or peer_of(row['cid'], row['user_id'])
+                if info.get('stage'):
+                    row['stage'] = info['stage']
+                if info.get('tags'):
+                    row['tags'] = info['tags']
             return self._json({'rows': rows[:count], 'more': len(rows) > count})
         if path == '/api/workbench/detail':
             user, cid = value('user'), value('cid')
@@ -911,6 +957,73 @@ class Handler(BaseHTTPRequestHandler):
             wb.image_note(user, cid, int(values['message_id']), str(values.get('note') or ''))
             self.hub.publish({'kind': 'workbench', 'user': user, 'cid': cid})
             return self._json({'ok': True})
+        if path == '/api/workbench/customer-note':
+            stage = values.get('stage') if 'stage' in values else None
+            tags = values.get('tags') if 'tags' in values else None
+            note = values.get('note') if 'note' in values else None
+            self.store.update_customer_meta(user, cid, stage=stage, tags=tags, note=note)
+            customer = self.store.get_customer(user, cid)
+            self.hub.publish({'kind': 'workbench', 'user': user, 'cid': cid})
+            return self._json({'ok': True, 'customer': customer})
+        if path == '/api/workbench/draft-reply':
+            snap = wb.settings.snapshot()
+            profile_id = snap.get('text_profile')
+            profiles = {p['id']: p for p in snap.get('profiles') or []}
+            profile = profiles.get(profile_id)
+            if not profile:
+                raise ValueError('请先在「AI 与设置」中添加并选择文字模型')
+            intent = str(values.get('intent') or '').strip()[:500]
+            det = wb.detail(user, cid, 0)
+            customer = self.store.get_customer(user, cid) or {}
+            msgs = det.get('messages') or []
+            recent = msgs[-18:]
+            lines = []
+            for m in recent:
+                who = '买家' if m.get('direction') == 'in' else ('我方' if m.get('direction') == 'out' else '消息')
+                text = (m.get('content') or '').strip()
+                if m.get('card') and isinstance(m['card'], dict):
+                    card_str = json.dumps(m['card'], ensure_ascii=False)[:240]
+                    text = (text + ' ' if text else '') + '[商品/订单卡片: ' + card_str + ']'
+                if text:
+                    lines.append('%s: %s' % (who, text[:300]))
+            latest_report = (det.get('reports') or [None])[0]
+            ctx = []
+            if customer.get('display_name'):
+                ctx.append('客户名称: ' + customer['display_name'])
+            if customer.get('stage'):
+                ctx.append('客户阶段: ' + customer['stage'])
+            if customer.get('note'):
+                ctx.append('业务员备注: ' + customer['note'])
+            if latest_report and latest_report.get('summary'):
+                ctx.append('历史概要: ' + latest_report['summary'])
+            if lines:
+                ctx.append('最近对话:\n' + '\n'.join(lines))
+            else:
+                ctx.append('最近对话: （暂无历史消息，属于新对话）')
+            if intent:
+                ctx.append('业务员本次想表达的中文意图: ' + intent)
+            else:
+                ctx.append('业务员未指定具体意图，请根据最新对话自然推进成交（如解答疑问、确认规格/MOQ/交期/样卡或礼貌跟进）。')
+            sys_prompt = (
+                '你是资深阿里国际站外贸业务专家。请根据客户上下文，帮业务员生成 2 条可直接发给买家的英文回复草稿'
+                '（若买家使用非英语如西班牙语，也可用买家语言回复并在 zh 中注明）。\n'
+                '严格只输出一个 JSON 对象，不要包含 Markdown 代码块或多余文字，格式为：\n'
+                '{"drafts":[{"title":"专业推进版","en":"...","zh":"中文含义简述"},{"title":"简短直接版","en":"...","zh":"中文含义简述"}]}'
+            )
+            raw_text, _ = request_model(profile, sys_prompt, '\n\n'.join(ctx), 900)
+            cleaned = raw_text.strip()
+            if cleaned.startswith('```'):
+                cleaned = re.sub(r'^```[a-zA-Z]*\s*', '', cleaned)
+                cleaned = re.sub(r'\s*```$', '', cleaned)
+            try:
+                parsed = json.loads(cleaned)
+                drafts = parsed.get('drafts') if isinstance(parsed, dict) else None
+            except Exception:
+                m_json = re.search(r'\{[\s\S]*\}', cleaned)
+                drafts = json.loads(m_json.group(0)).get('drafts') if m_json else None
+            if not isinstance(drafts, list) or not drafts:
+                drafts = [{'title': '建议回复', 'en': raw_text.strip(), 'zh': ''}]
+            return self._json({'ok': True, 'drafts': drafts[:3]})
         return self._json({'error': '接口不存在'}, 404)
 
     def _img(self, url):
@@ -1035,12 +1148,23 @@ class FridaBridge(object):
 
     def snapshot(self):
         with self.lock:
+            if sys.platform != 'darwin':
+                return {
+                    'available': False,
+                    'enabled': False,
+                    'state': 'disabled',
+                    'pid': None,
+                    'error': '',
+                    'reason': '实时联动当前仅支持 macOS',
+                }
+            avail = bool(self._find_frida() and os.path.isfile(self.agent_path))
             return {
-                'available': bool(self._find_frida() and os.path.isfile(self.agent_path)),
+                'available': avail,
                 'enabled': self.enabled,
                 'state': self.state,
                 'pid': self.pid,
                 'error': self.error,
+                'reason': '' if avail else '未检测到 frida CLI 或 frida_agent.js',
             }
 
     def _set_state(self, state, pid=None, error=''):
@@ -1050,8 +1174,13 @@ class FridaBridge(object):
             self.error = error
         self.hub.publish({'kind': 'frida_status', 'frida': self.snapshot()})
 
-    def set_enabled(self, enabled):
+    def set_enabled(self, enabled, persist=True):
         with self.lock:
+            if persist:
+                try:
+                    self.store.x("INSERT OR REPLACE INTO meta(k,v) VALUES('frida_enabled',?)", ('1' if enabled else '0',))
+                except Exception:
+                    pass
             if enabled == self.enabled:
                 return
             self.enabled = bool(enabled)
@@ -1220,6 +1349,9 @@ def serve(args):
         else:
             print('跳过账号归属不明确的卡片库: %s' % account)
     workbench.start()
+    saved_frida = store.q("SELECT v FROM meta WHERE k='frida_enabled'")
+    if saved_frida and saved_frida[0]['v'] == '1':
+        frida_bridge.set_enabled(True, persist=False)
 
     runtime_file = os.path.join(os.path.dirname(os.path.abspath(args.db)), 'runtime.json')
     try:

@@ -1,6 +1,6 @@
 const { app, BrowserWindow, Menu, ipcMain, nativeImage, screen, session } = require('electron');
 const path = require('node:path');
-const { readFileSync } = require('node:fs');
+const { readFileSync, writeFileSync, mkdirSync } = require('node:fs');
 const { pathToFileURL } = require('node:url');
 const { DesktopService } = require('./service.cjs');
 
@@ -18,6 +18,23 @@ function createDesktop(options = {}) {
   let icon;
   let widgetMode = true;
   let alwaysOnTop = false;
+  let prefsPath = null;
+
+  function loadPrefs() {
+    try {
+      prefsPath = path.join(app.getPath('userData'), 'prefs.json');
+      const data = JSON.parse(readFileSync(prefsPath, 'utf8'));
+      if (typeof data.alwaysOnTop === 'boolean') alwaysOnTop = data.alwaysOnTop;
+    } catch (_) {}
+  }
+
+  function savePrefs() {
+    if (!prefsPath) return;
+    try {
+      mkdirSync(path.dirname(prefsPath), { recursive: true });
+      writeFileSync(prefsPath, JSON.stringify({ alwaysOnTop }), 'utf8');
+    } catch (_) {}
+  }
 
   function allowed(url) {
     if (url === launcherUrl) return true;
@@ -118,8 +135,10 @@ function createDesktop(options = {}) {
 
   function applyAlwaysOnTop(enabled) {
     alwaysOnTop = Boolean(enabled);
+    savePrefs();
     if (window && !window.isDestroyed()) {
-      window.setAlwaysOnTop(alwaysOnTop, 'floating');
+      if (process.platform === 'darwin') window.setAlwaysOnTop(alwaysOnTop, 'floating');
+      else window.setAlwaysOnTop(alwaysOnTop);
     }
     return { widget: widgetMode, alwaysOnTop };
   }
@@ -149,6 +168,10 @@ function createDesktop(options = {}) {
       webPreferences: rendererOptions(),
     });
     applyWidgetMode(widgetMode);
+    if (alwaysOnTop) {
+      if (process.platform === 'darwin') window.setAlwaysOnTop(true, 'floating');
+      else window.setAlwaysOnTop(true);
+    }
     protect(window.webContents, true);
     window.once('ready-to-show', () => window.show());
     window.on('closed', () => { window = null; });
@@ -164,6 +187,7 @@ function createDesktop(options = {}) {
   }
 
   const ready = app.whenReady().then(async () => {
+    loadPrefs();
     icon = nativeImage.createFromBuffer(readFileSync(path.join(__dirname, 'icon.png')));
     desktopSession = session.fromPartition('alisupplier-workbench');
     desktopSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
@@ -184,6 +208,7 @@ function createDesktop(options = {}) {
     updateMenu();
     if (process.platform === 'darwin') app.dock.setIcon(icon);
     await createWindow();
+    void start();
   });
 
   app.on('activate', () => { if (!window) void createWindow(); });

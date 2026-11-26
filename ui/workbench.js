@@ -87,7 +87,9 @@ function renderList() {
   for (const row of state.rows) {
     const el = button('', () => openDetail(row), 'thread');
     const client = node('span');
-    client.append(node('strong', 'client', row.peer || row.cid), node('small', 'muted', row.user_id));
+    const titleEl = node('strong', 'client', row.peer || row.cid);
+    if (row.stage) titleEl.append(node('span', 'stage-pill', row.stage));
+    client.append(titleEl, node('small', 'muted', row.user_id));
     const summary = node('span', 'thread-summary');
     summary.append(node('span', 'change', row.changes || row.latest_content || '等待首次汇总'));
     if (row.next_step) summary.append(node('small', 'muted', '建议：' + row.next_step));
@@ -121,7 +123,7 @@ function renderFrida(frida) {
   if (!frida.available) {
     btn.textContent = '集成不可用';
     btn.disabled = true;
-    btn.title = '未检测到 frida CLI 或 frida_agent.js';
+    btn.title = frida.reason || '未检测到 frida CLI 或 frida_agent.js';
     return;
   }
   btn.disabled = false;
@@ -328,6 +330,102 @@ function renderCustomerCard(data, user, cid, row) {
   kv(moreGrid, '会话 CID', cid);
   more.append(moreGrid);
   card.append(more);
+
+  // 意向阶段 + 快捷标签 + 私密备注
+  const crm = node('div', 'crm-panel');
+  const stageRow = node('div', 'crm-row');
+  const stageSel = node('select');
+  stageSel.setAttribute('aria-label', '客户阶段');
+  const stages = ['', '新询盘', '需求确认', '已报价', '寄样中', '谈判逼单', '已成交', '冷淡'];
+  for (const s of stages) stageSel.append(new Option(s || '阶段：未标记', s));
+  stageSel.value = c.stage || '';
+
+  const presetTags = ['高意向', '价格敏感', '已加WA', '老客户', '催样中'];
+  let activeTags = new Set(Array.isArray(c.tags) ? c.tags : []);
+  const noteInput = node('textarea', 'crm-note');
+  noteInput.placeholder = '记录客户备注（如：目标价、已加 WhatsApp、样卡单号）… 失焦自动保存';
+  noteInput.value = c.note || '';
+
+  const saveMeta = async (silent = false) => {
+    try {
+      await api('/api/workbench/customer-note', {
+        user, cid,
+        stage: stageSel.value,
+        tags: [...activeTags],
+        note: noteInput.value
+      });
+      if (!silent) notice('已保存客户档案');
+      loadList().catch(() => {});
+    } catch (error) {
+      notice(error.message);
+    }
+  };
+  stageSel.addEventListener('change', () => saveMeta(false));
+  noteInput.addEventListener('blur', () => {
+    if (noteInput.value !== (c.note || '')) {
+      c.note = noteInput.value;
+      saveMeta(false);
+    }
+  });
+  stageRow.append(stageSel);
+  for (const tag of presetTags) {
+    const chip = button(tag, () => {
+      if (activeTags.has(tag)) activeTags.delete(tag);
+      else activeTags.add(tag);
+      chip.classList.toggle('active', activeTags.has(tag));
+      saveMeta(true);
+    }, 'tag-chip' + (activeTags.has(tag) ? ' active' : ''));
+    stageRow.append(chip);
+  }
+  crm.append(stageRow, noteInput);
+  card.append(crm);
+  return card;
+}
+
+function renderDraftCard(user, cid) {
+  const card = node('section', 'draft-card');
+  const head = node('div', 'draft-head');
+  head.append(node('span', '', 'AI 回复助手'), node('small', 'muted', '生成后一键复制粘贴到阿里卖家'));
+  const inputRow = node('div', 'draft-input-row');
+  const intent = node('input');
+  intent.type = 'text';
+  intent.placeholder = '输入中文意图（可留空，如：300米起订，$4.2/米）';
+  const list = node('div', 'draft-list');
+  const genBtn = button('生成回复', async () => {
+    genBtn.disabled = true;
+    genBtn.textContent = '生成中…';
+    list.replaceChildren();
+    try {
+      const res = await api('/api/workbench/draft-reply', { user, cid, intent: intent.value.trim() });
+      for (const d of res.drafts || []) {
+        const item = node('div', 'draft-item');
+        const top = node('div', 'draft-item-top');
+        const copyBtn = button('复制英文', async () => {
+          try {
+            await navigator.clipboard.writeText(d.en || '');
+            copyBtn.textContent = '已复制 ✓';
+            setTimeout(() => { copyBtn.textContent = '复制英文'; }, 1600);
+          } catch (_) {
+            notice('复制失败，请手动选中复制');
+          }
+        }, 'button');
+        copyBtn.style.padding = '2px 8px';
+        copyBtn.style.fontSize = '11px';
+        top.append(node('span', '', d.title || '建议回复'), copyBtn);
+        item.append(top, node('div', 'draft-item-en', d.en || ''));
+        if (d.zh) item.append(node('div', 'draft-item-zh', '中文：' + d.zh));
+        list.append(item);
+      }
+    } catch (error) {
+      notice(error.message);
+    } finally {
+      genBtn.disabled = false;
+      genBtn.textContent = '生成回复';
+    }
+  }, 'button primary');
+  intent.addEventListener('keydown', e => { if (e.key === 'Enter') genBtn.click(); });
+  inputRow.append(intent, genBtn);
+  card.append(head, inputRow, list);
   return card;
 }
 
@@ -359,7 +457,7 @@ async function openDetail(row, checked = true) {
   feedback.id = 'detail-feedback';
   feedback.setAttribute('role', 'status');
   const report = data.reports[0];
-  scroll.replaceChildren(renderCustomerCard(data, user, cid, row), top, feedback);
+  scroll.replaceChildren(renderCustomerCard(data, user, cid, row), renderDraftCard(user, cid), top, feedback);
   if (report) {
     scroll.append(reportBlock(report, row));
     if (data.reports.length > 1) {
@@ -575,6 +673,10 @@ if (fridaBtn) {
       fridaBtn.disabled = false;
     }
   });
+}
+
+if (window.alisupplierDesktop?.platform === 'darwin') {
+  document.body.classList.add('platform-darwin');
 }
 
 if (window.alisupplierDesktop?.setWidgetMode) {

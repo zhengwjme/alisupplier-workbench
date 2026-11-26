@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('alisupplierDesktop', Object.freeze({
+  platform: process.platform,
   start: () => ipcRenderer.invoke('service:start'),
   stop: () => ipcRenderer.invoke('service:stop'),
   status: () => ipcRenderer.invoke('service:status'),
