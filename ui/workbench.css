@@ -403,7 +403,124 @@ input:not([type=checkbox]):focus, select:focus, textarea:focus { border-color: v
 .ring-act:active .ring-act-circle { transform: scale(0.94); }
 .ring-act-circle.solid { background: var(--indigo); color: #fff; }
 .ring-act-circle.outline { border: 1.5px solid var(--copper); color: var(--copper); background: var(--paper); }
+.ring-act-circle.subtle { border: 1px solid var(--hairline); color: var(--ink); background: var(--surface); }
 .ring-act-circle svg { width: 18px; height: 18px; }
+
+/* AI 选品简报卡 */
+.brief-slot { margin-bottom: 18px; }
+.brief-card {
+  border-radius: 14px;
+  padding: 14px 15px;
+  background: linear-gradient(155deg, rgba(238, 241, 249, 0.72), rgba(255, 255, 255, 0.96) 58%, rgba(247, 236, 228, 0.45));
+  border: 1px solid rgba(35, 52, 120, 0.12);
+}
+.brief-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.brief-title-wrap { display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 13px; color: var(--ink); }
+.brief-title-wrap strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.brief-badge {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 99px;
+  background: var(--paper-alt);
+  color: var(--muted);
+}
+.brief-badge.ai { background: var(--indigo); color: #fff; }
+.brief-list { display: grid; gap: 9px; }
+.brief-item { background: var(--surface); border-radius: 10px; padding: 10px 12px; border: 1px solid var(--hairline); }
+.brief-item-top { display: flex; align-items: baseline; gap: 7px; margin-bottom: 4px; font-size: 13px; color: var(--ink); }
+.brief-tag {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--copper);
+  background: var(--copper-soft);
+  padding: 1px 7px;
+  border-radius: 99px;
+}
+.brief-item p { margin: 0; font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+
+/* 可点击反向筛人行 */
+.bar-row.drillable {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 5px 4px;
+  border-radius: 8px;
+  text-align: left;
+  cursor: pointer;
+  color: var(--ink);
+  grid-template-columns: 98px 1fr 48px;
+  transition: background .14s;
+}
+.bar-row.drillable:hover { background: var(--paper-alt); }
+.bar-fill.inferred { background: #7888b8; }
+.prod-row.drillable {
+  width: 100%;
+  border-top: 0;
+  border-left: 0;
+  border-right: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  padding: 10px 4px;
+  border-radius: 8px;
+  transition: background .14s;
+}
+.prod-row.drillable:hover { background: var(--paper-alt); }
+
+/* 反向筛人买家弹层 */
+.drill-dialog {
+  width: min(420px, 92vw);
+  max-height: 76vh;
+  margin: auto;
+  padding: 0;
+  border: 1px solid var(--hairline);
+  border-radius: 16px;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 0 22px 60px rgba(27, 37, 65, 0.22);
+  overflow: hidden;
+}
+.drill-dialog[open] { display: flex; flex-direction: column; animation: draftReveal 200ms cubic-bezier(0.16, 1, 0.3, 1); }
+.drill-dialog::backdrop { background: rgba(27, 37, 65, 0.26); backdrop-filter: blur(2px); }
+.drill-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--hairline);
+  background: var(--paper);
+}
+.drill-head-info { min-width: 0; flex: 1; }
+.drill-head h3 { font-size: 14.5px; font-weight: 700; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drill-sub { font-size: 12px; color: var(--muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drill-body { flex: 1 1 auto; overflow-y: auto; padding: 6px 12px 14px; }
+.drill-item {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--hairline);
+  background: transparent;
+  padding: 10px 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  text-align: left;
+  cursor: pointer;
+  color: var(--ink);
+  transition: background .12s;
+}
+.drill-item:last-child { border-bottom: 0; }
+.drill-item:hover { background: var(--paper-alt); }
+.drill-item-main { flex: 1; min-width: 0; overflow: hidden; }
+.drill-item-top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.drill-item-top strong { font-size: 13.5px; font-weight: 650; }
+.drill-item-main small { display: block; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 3px; }
+.drill-chev { color: var(--muted); font-size: 18px; line-height: 1; flex-shrink: 0; }
+.inferred-pill { font-size: 11px; color: var(--indigo); background: var(--indigo-soft); padding: 1px 7px; border-radius: 99px; font-weight: 600; }
 
 .stat-strip {
   display: grid;
@@ -859,6 +976,8 @@ input:not([type=checkbox]):focus, select:focus, textarea:focus { border-color: v
   font-size: 12px;
   cursor: pointer;
   padding: 2px 6px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .draft-loading { font-size: 12.5px; color: var(--muted); padding: 6px 2px; }
 .draft-list { display: grid; gap: 8px; }

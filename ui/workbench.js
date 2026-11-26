@@ -895,6 +895,76 @@ $('add-profile').addEventListener('click', () => {
   refreshSelectors(pick ? {text_profile: editor.dataset.id} : {});
   $('profiles').lastElementChild.querySelector('input').focus();
 });
+function openBuyerDrill(title, subtitle, buyers) {
+  const dlg = $('buyer-drill');
+  if (!dlg) return;
+  $('drill-title').textContent = title;
+  $('drill-sub').textContent = subtitle;
+  const body = $('drill-body');
+  body.replaceChildren();
+  if (!Array.isArray(buyers) || !buyers.length) {
+    body.append(node('div', 'empty', '暂无关联买家记录'));
+  } else {
+    for (const b of buyers) {
+      const btn = button('', () => {
+        dlg.close();
+        openDetail({ user_id: b.user_id, cid: b.cid, peer: b.peer }, false);
+      }, 'drill-item');
+      const main = node('div', 'drill-item-main');
+      const top = node('div', 'drill-item-top');
+      top.append(node('strong', '', b.peer || b.cid));
+      if (b.stage) top.append(node('span', 'stage-pill', b.stage));
+      if (b.inferred && b.reason) top.append(node('span', 'inferred-pill', '推断 · ' + b.reason));
+      else if (b.country) top.append(node('span', 'mini-tag', b.country));
+      const subParts = [];
+      if (b.count) subParts.push(`咨询 ${b.count} 次`);
+      if (b.last_ts) subParts.push(formatTime(b.last_ts));
+      if (b.last_content) subParts.push(b.last_content);
+      main.append(top, node('small', '', subParts.join(' · ') || '点击查看客户详情'));
+      const chev = document.createElement('span');
+      chev.className = 'drill-chev';
+      chev.textContent = '›';
+      btn.append(main, chev);
+      body.append(btn);
+    }
+  }
+  if (!dlg.open) dlg.showModal();
+}
+
+async function runAnalyticsBrief(slot) {
+  if (!slot) return;
+  slot.hidden = false;
+  slot.replaceChildren(renderAiThinking('AI 正在结合真实询盘与地域分布生成选品简报…'));
+  const days = Number($('analytics-days')?.value ?? 30);
+  const user = $('accounts')?.value || '';
+  try {
+    const res = await api('/api/workbench/analytics-brief', { days, user });
+    const card = node('section', 'brief-card');
+    const head = node('div', 'brief-head');
+    const titleWrap = node('div', 'brief-title-wrap');
+    titleWrap.append(
+      node('span', 'brief-badge' + (res.source === 'ai' ? ' ai' : ''), res.source === 'ai' ? 'AI 洞察' : '本地简报'),
+      node('strong', '', res.source === 'ai' ? '周期选品与跟单结论' : '数据简报（配置 AI 模型后深度解读）')
+    );
+    head.append(titleWrap, button('收起', () => { slot.hidden = true; }, 'draft-close-btn'));
+    card.append(head);
+    const list = node('div', 'brief-list');
+    (res.items || []).forEach((it, idx) => {
+      const row = node('div', 'brief-item draft-pop');
+      row.style.animationDelay = (idx * 65) + 'ms';
+      const top = node('div', 'brief-item-top');
+      top.append(node('span', 'brief-tag', it.tag || '洞察'), node('strong', '', it.title || ''));
+      row.append(top, node('p', '', it.detail || ''));
+      list.append(row);
+    });
+    card.append(list);
+    slot.replaceChildren(card);
+  } catch (error) {
+    slot.hidden = true;
+    notice(error.message);
+  }
+}
+
 async function loadAnalytics() {
   const body = $('analytics-body');
   if (!body) return;
@@ -917,15 +987,19 @@ async function loadAnalytics() {
     </svg>`;
   const center = node('div', 'rings-center');
   center.append(
-    node('div', 'rings-kicker', '独立咨询商品 · 覆盖国家'),
+    node('div', 'rings-kicker', '独立咨询商品 · 覆盖地区'),
     (() => {
       const n = node('div', 'rings-num', String(kpi.unique_products || 0));
-      n.append(node('small', '', `/ ${kpi.unique_countries || 0}国`));
+      n.append(node('small', '', `/ ${kpi.unique_countries || 0}区`));
       return n;
     })(),
-    node('div', 'rings-sub', `${kpi.total_customers || 0} 位买家 · ${kpi.in_messages || 0} 条询盘`)
+    node('div', 'rings-sub', `${kpi.total_customers || 0} 位买家 · 实测 ${kpi.verified_country_customers || 0} / 推断 ${kpi.inferred_country_customers || 0}`)
   );
   visual.append(center);
+
+  const briefSlot = node('div', 'brief-slot');
+  briefSlot.id = 'analytics-brief-slot';
+  briefSlot.hidden = true;
 
   const acts = node('div', 'rings-actions');
   const mkAct = (label, cls, svg, fn) => {
@@ -936,11 +1010,12 @@ async function loadAnalytics() {
     return b;
   };
   acts.append(
-    mkAct('导出 CSV', 'solid', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>', exportCsv),
-    mkAct('刷新统计', 'outline', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>', () => loadAnalytics().catch(e => notice(e.message)))
+    mkAct('AI 简报', 'solid', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z"/></svg>', () => runAnalyticsBrief(briefSlot)),
+    mkAct('导出 CSV', 'outline', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>', exportCsv),
+    mkAct('刷新统计', 'subtle', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>', () => loadAnalytics().catch(e => notice(e.message)))
   );
   hero.append(visual, acts);
-  body.append(hero);
+  body.append(hero, briefSlot);
 
   // 紧凑 3 列核心效率条
   const strip = node('div', 'stat-strip');
@@ -955,11 +1030,11 @@ async function loadAnalytics() {
   addCell('平均响应', respText);
   body.append(strip);
 
-  // 客户地域分布（大区 + 国家 Top 15）
+  // 客户地域分布（大区 + 国家 Top 15，全部支持点击反向筛人）
   const geoGrid = node('div', 'analytics-grid');
   const regPanel = node('section', 'section-block');
   const regH = node('h2', '', '客户大区分布');
-  regH.append(node('small', '', '卡片 + 集成'));
+  regH.append(node('small', '', '点击看买家'));
   regPanel.append(regH);
   const regBars = node('div', 'bar-list');
   if (!(data.regions || []).length) {
@@ -967,20 +1042,24 @@ async function loadAnalytics() {
   } else {
     const maxReg = Math.max(1, ...data.regions.map(r => r.buyers));
     for (const r of data.regions) {
-      const row = node('div', 'bar-row');
+      const row = button('', () => openBuyerDrill(
+        `${r.region} · 买家列表`,
+        `共 ${r.buyers} 位（实测 ${r.verified_buyers || 0} · 推断 ${r.inferred_buyers || 0}）`,
+        r.buyer_list || []
+      ), 'bar-row drillable');
       const track = node('div', 'bar-track');
       const fill = node('div', 'bar-fill copper');
       fill.style.width = Math.round((r.buyers / maxReg) * 100) + '%';
       track.append(fill);
-      row.append(node('span', '', r.region), track, node('strong', '', r.buyers + '人'));
+      row.append(node('span', '', r.region), track, node('strong', '', r.buyers + '人 ›'));
       regBars.append(row);
     }
   }
   regPanel.append(regBars);
 
   const ctryPanel = node('section', 'section-block');
-  const ctryH = node('h2', '', '买家来源国家 Top 15');
-  ctryH.append(node('small', '', '独立买家数'));
+  const ctryH = node('h2', '', '买家来源国家/语区 Top 15');
+  ctryH.append(node('small', '', '实测 + 推断'));
   ctryPanel.append(ctryH);
   const ctryBars = node('div', 'bar-list');
   if (!(data.countries || []).length) {
@@ -988,12 +1067,16 @@ async function loadAnalytics() {
   } else {
     const maxC = Math.max(1, ...data.countries.map(c => c.buyers));
     for (const c of data.countries) {
-      const row = node('div', 'bar-row');
+      const row = button('', () => openBuyerDrill(
+        `${c.name}`,
+        `共 ${c.buyers} 位买家（实测 ${c.verified_buyers || 0} · 推断 ${c.inferred_buyers || 0}）`,
+        c.buyer_list || []
+      ), 'bar-row drillable');
       const track = node('div', 'bar-track');
-      const fill = node('div', 'bar-fill');
+      const fill = node('div', 'bar-fill' + (c.inferred ? ' inferred' : ''));
       fill.style.width = Math.round((c.buyers / maxC) * 100) + '%';
       track.append(fill);
-      row.append(node('span', '', c.name), track, node('strong', '', c.buyers + '人'));
+      row.append(node('span', '', c.name), track, node('strong', '', c.buyers + '人 ›'));
       ctryBars.append(row);
     }
   }
@@ -1001,16 +1084,20 @@ async function loadAnalytics() {
   geoGrid.append(regPanel, ctryPanel);
   body.append(geoGrid);
 
-  // 热门咨询商品 Top 15
+  // 热门咨询商品 Top 15（点击反向查看咨询该商品的买家）
   const prPanel = node('section', 'section-block');
   const prH = node('h2', '', '热门咨询商品 Top 15');
-  prH.append(node('small', '', '标价 · MOQ · 来源国'));
+  prH.append(node('small', '', '点击看询盘买家'));
   prPanel.append(prH);
   if (!(data.top_products || []).length) {
     prPanel.append(node('p', 'muted', '选定周期内暂无商品卡片记录。'));
   } else {
     for (const p of data.top_products) {
-      const row = node('div', 'prod-row');
+      const row = button('', () => openBuyerDrill(
+        p.title,
+        `${p.buyers} 位买家共咨询 ${p.mentions} 次${p.price ? ' · ' + p.price : ''}${p.moq ? ' · MOQ ' + p.moq : ''}`,
+        p.buyer_list || []
+      ), 'prod-row drillable');
       const info = node('div', 'prod-info');
       info.append(node('span', 'prod-title', p.title));
       const subParts = [];
@@ -1018,7 +1105,7 @@ async function loadAnalytics() {
       if (p.moq) subParts.push('MOQ ' + p.moq);
       if (p.countries?.length) subParts.push(p.countries.join('、'));
       if (subParts.length) info.append(node('span', 'prod-sub', subParts.join(' · ')));
-      row.append(info, node('span', 'prod-meta', `${p.buyers}人 / ${p.mentions}次`));
+      row.append(info, node('span', 'prod-meta', `${p.buyers}人 / ${p.mentions}次 ›`));
       prPanel.append(row);
     }
   }
@@ -1155,6 +1242,10 @@ $('export-csv')?.addEventListener('click', async () => {
   } catch (error) {
     notice(error.message);
   }
+});
+$('close-drill')?.addEventListener('click', () => $('buyer-drill')?.close());
+$('buyer-drill')?.addEventListener('click', e => {
+  if (e.target === $('buyer-drill')) $('buyer-drill').close();
 });
 $('close-detail').addEventListener('click', () => {
   if (activeDetailView === 'chat') setDetailView('overview');

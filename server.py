@@ -948,6 +948,44 @@ class Handler(BaseHTTPRequestHandler):
             enabled = bool(values.get('enabled'))
             Handler.frida.set_enabled(enabled)
             return self._json({'ok': True, 'frida': Handler.frida.snapshot()})
+        if path == '/api/workbench/analytics-brief':
+            days = int(values.get('days') or 30)
+            u = str(values.get('user') or '').strip()
+            from analytics import compute_analytics as _ca, build_local_brief as _blb
+            data = _ca(self.store, user=u, days=days)
+            snap = wb.settings.snapshot()
+            profile = {p['id']: p for p in (snap.get('profiles') or [])}.get(snap.get('text_profile'))
+            if not profile:
+                return self._json({'ok': True, 'source': 'local', 'items': _blb(data)})
+            compact = {
+                'days': data['days'],
+                'kpi': data['kpi'],
+                'regions': [{'region': r['region'], 'buyers': r['buyers'], 'verified': r['verified_buyers'], 'inferred': r['inferred_buyers']} for r in data['regions'][:6]],
+                'countries': [{'name': c['name'], 'buyers': c['buyers'], 'inferred': c['inferred']} for c in data['countries'][:8]],
+                'top_products': [{'title': p['title'][:60], 'price': p['price'], 'moq': p['moq'], 'buyers': p['buyers'], 'mentions': p['mentions'], 'countries': p['countries']} for p in data['top_products'][:8]],
+                'top_keywords': data['top_keywords'][:10],
+                'country_products': data['country_products'][:6],
+            }
+            sys_prompt = (
+                '你是资深阿里国际站外贸选品与增长顾问。请严格基于提供的真实 JSON 统计数据（不得编造任何未出现的数据），'
+                '提炼 3 到 4 条简洁、可执行的外贸选品与跟单结论。\n'
+                '严格只输出一个 JSON 对象，不要包含 Markdown 代码块，格式为：\n'
+                '{"items":[{"tag":"2-4字标签","title":"一句话核心结论","detail":"基于数据的具体建议（40-80字）"}]}'
+            )
+            try:
+                raw_text, _ = request_model(profile, sys_prompt, json.dumps(compact, ensure_ascii=False), 900)
+                cleaned = raw_text.strip()
+                if cleaned.startswith('```'):
+                    cleaned = re.sub(r'^```[a-zA-Z]*\s*', '', cleaned)
+                    cleaned = re.sub(r'\s*```$', '', cleaned)
+                m_json = re.search(r'\{[\s\S]*\}', cleaned)
+                parsed = json.loads(m_json.group(0)) if m_json else json.loads(cleaned)
+                items = parsed.get('items') if isinstance(parsed, dict) else None
+                if isinstance(items, list) and items:
+                    return self._json({'ok': True, 'source': 'ai', 'items': items[:4]})
+            except Exception:
+                pass
+            return self._json({'ok': True, 'source': 'local', 'items': _blb(data)})
         user = values.get('user') or values.get('user_id')
         cid = values.get('cid')
         if not isinstance(user, str) or not isinstance(cid, str) or not user or not cid:

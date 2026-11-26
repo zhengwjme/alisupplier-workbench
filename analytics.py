@@ -181,6 +181,96 @@ def _tokenize_title(title):
     return [w.lower() for w in words if w.lower() not in STOP_WORDS and not w.isdigit()]
 
 
+# 国际电话区号 -> 国家代码（长前缀优先）
+DIAL_PREFIXES = [
+    ('+971', 'AE'), ('+966', 'SA'), ('+965', 'KW'), ('+974', 'QA'), ('+968', 'OM'),
+    ('+962', 'JO'), ('+964', 'IQ'), ('+973', 'BH'), ('+961', 'LB'), ('+880', 'BD'),
+    ('+234', 'NG'), ('+254', 'KE'), ('+233', 'GH'), ('+212', 'MA'), ('+213', 'DZ'),
+    ('+216', 'TN'), ('+255', 'TZ'), ('+256', 'UG'), ('+251', 'ET'), ('+237', 'CM'),
+    ('+92', 'PK'), ('+91', 'IN'), ('+20', 'EG'), ('+27', 'ZA'), ('+52', 'MX'),
+    ('+55', 'BR'), ('+57', 'CO'), ('+51', 'PE'), ('+56', 'CL'), ('+54', 'AR'),
+    ('+44', 'GB'), ('+33', 'FR'), ('+34', 'ES'), ('+49', 'DE'), ('+39', 'IT'),
+    ('+90', 'TR'), ('+62', 'ID'), ('+60', 'MY'), ('+63', 'PH'), ('+66', 'TH'),
+    ('+84', 'VN'), ('+61', 'AU'),
+]
+
+TEXT_COUNTRY_HINTS = [
+    (r'\b(dubai|abu dhabi|sharjah|uae|aed|dirham)\b', 'AE', '文本地名/货币'),
+    (r'\b(saudi|riyadh|jeddah|ksa|sar|riyal)\b', 'SA', '文本地名/货币'),
+    (r'\b(pakistan|karachi|lahore|islamabad|pkr)\b', 'PK', '文本地名/货币'),
+    (r'\b(india|mumbai|delhi|chennai|bangalore|inr|rupee)\b', 'IN', '文本地名/货币'),
+    (r'\b(nigeria|lagos|abuja|naira|ngn)\b', 'NG', '文本地名/货币'),
+    (r'\b(kenya|nairobi|mombasa|kes)\b', 'KE', '文本地名/货币'),
+    (r'\b(egypt|cairo|alexandria|egp)\b', 'EG', '文本地名/货币'),
+    (r'\b(mexico|guadalajara|monterrey|mxn)\b', 'MX', '文本地名/货币'),
+    (r'\b(brazil|brasil|sao paulo|brl)\b', 'BR', '文本地名/货币'),
+    (r'\b(colombia|bogota|medellin|cop)\b', 'CO', '文本地名/货币'),
+    (r'\b(bangladesh|dhaka|chittagong|bdt)\b', 'BD', '文本地名/货币'),
+    (r'\b(morocco|casablanca|rabat)\b', 'MA', '文本地名'),
+    (r'\b(algeria|algiers)\b', 'DZ', '文本地名'),
+    (r'\b(turkey|istanbul|ankara)\b', 'TR', '文本地名'),
+    (r'\b(ghana|accra)\b', 'GH', '文本地名'),
+    (r'\b(south africa|johannesburg|cape town)\b', 'ZA', '文本地名'),
+    (r'\b(qatar|doha)\b', 'QA', '文本地名'),
+    (r'\b(kuwait)\b', 'KW', '文本地名'),
+    (r'\b(oman|muscat)\b', 'OM', '文本地名'),
+    (r'\b(iraq|baghdad)\b', 'IQ', '文本地名'),
+    (r'\b(jordan|amman)\b', 'JO', '文本地名'),
+    (r'\b(united kingdom|london|manchester|gbp)\b', 'GB', '文本地名/货币'),
+    (r'\b(usa|united states|los angeles|new york|texas|miami)\b', 'US', '文本地名'),
+    (r'\b(peru|lima)\b', 'PE', '文本地名'),
+    (r'\b(chile|santiago)\b', 'CL', '文本地名'),
+    (r'\b(philippines|manila)\b', 'PH', '文本地名'),
+    (r'\b(indonesia|jakarta)\b', 'ID', '文本地名'),
+    (r'\b(vietnam|hanoi|ho chi minh)\b', 'VN', '文本地名'),
+    (r'\b(thailand|bangkok)\b', 'TH', '文本地名'),
+]
+
+LANG_REGION_META = {
+    '_ARAB': ('阿语区 (推断)', '中东'),
+    '_ES': ('西语区 (推断)', '拉美'),
+    '_FR': ('法语区 (推断)', '欧洲'),
+    '_PT': ('葡语区 (推断)', '拉美'),
+    '_RU': ('俄语区 (推断)', '欧洲'),
+}
+
+
+def _country_label_ext(code):
+    if code in LANG_REGION_META:
+        return LANG_REGION_META[code]
+    return _country_label(code)
+
+
+def _infer_country_from_texts(texts):
+    """基于买家真实消息文本保守推断地区：区号 > 明确地名货币 > 语种大区。返回 (code, reason) 或 ('', '')。"""
+    if not texts:
+        return ('', '')
+    joined = '\n'.join(t for t in texts if t)
+    if not joined.strip():
+        return ('', '')
+    # 1. 电话区号
+    for dial, code in DIAL_PREFIXES:
+        if re.search(re.escape(dial) + r'[\s\-]?\d{5,}', joined):
+            return (code, '区号 ' + dial)
+    # 2. 明确地名或货币
+    low = joined.lower()
+    for pat, code, reason in TEXT_COUNTRY_HINTS:
+        if re.search(pat, low):
+            return (code, reason)
+    # 3. 语种大区推断（仅在明显出现非英语语种时）
+    if len(re.findall(r'[\u0600-\u06FF]', joined)) >= 4:
+        return ('_ARAB', '阿语消息')
+    if len(re.findall(r'[\u0400-\u04FF]', joined)) >= 4:
+        return ('_RU', '俄语消息')
+    if len(re.findall(r'\b(hola|precio|cuanto|cuánto|metros|cantidad|envio|envío|quiero|necesito|amiga|amigo|unidad|por favor)\b', low)) >= 2:
+        return ('_ES', '西语消息')
+    if len(re.findall(r'\b(bonjour|prix|combien|livraison|merci|commande|mètre|metres)\b', low)) >= 2:
+        return ('_FR', '法语消息')
+    if len(re.findall(r'\b(preço|preco|obrigado|quanto|frete|pedido|olá)\b', low)) >= 2:
+        return ('_PT', '葡语消息')
+    return ('', '')
+
+
 def compute_analytics(store, user='', days=30):
     now_ts = int(time.time())
     cutoff = now_ts - int(days) * 86400 if days and int(days) > 0 else 0
@@ -235,7 +325,7 @@ def compute_analytics(store, user='', days=30):
             'updated_at': r['updated_at'],
         }
 
-    # 第一遍：先从全部卡片里收集地域映射（确保历史上出现过的国旗信息也能关联到对应客户）
+    # 第一遍：先从全部卡片里收集实测地域映射
     for r in rows:
         if r['kind'] == 'card' and r['payload']:
             _extract_card_countries(r['payload'], r['cid'], uid_to_country, cid_to_country)
@@ -264,6 +354,7 @@ def compute_analytics(store, user='', days=30):
                 'last_dir': None, 'last_ts': 0, 'last_content': '',
                 'first_ts': ts, 'total': 0, 'in_count': 0, 'out_count': 0,
                 'pending_in_ts': None, 'active_in_window': False,
+                'in_texts': [],
             }
             threads[key] = t
         t['total'] += 1
@@ -273,6 +364,8 @@ def compute_analytics(store, user='', days=30):
             t['last_ts'] = ts
             t['last_dir'] = direction
             t['last_content'] = (r['content'] or '').strip()[:120]
+        if direction == 'in' and r['content'] and len(t['in_texts']) < 12:
+            t['in_texts'].append((r['content'] or '').strip()[:260])
 
         if in_window:
             t['active_in_window'] = True
@@ -308,28 +401,32 @@ def compute_analytics(store, user='', days=30):
                 for pr in _extract_products(r['payload']):
                     p_entry = products.setdefault(pr['key'], {
                         'id': pr['id'], 'title': pr['title'], 'price': pr['price'], 'moq': pr['moq'],
-                        'count': 0, 'cids': set(), 'countries': set()
+                        'count': 0, 'cids': set(), 'buyer_counts': {}, 'countries': set()
                     })
                     p_entry['count'] += 1
                     p_entry['cids'].add(cid)
+                    p_entry['buyer_counts'][key] = p_entry['buyer_counts'].get(key, 0) + 1
                     if not p_entry['price'] and pr['price']:
                         p_entry['price'] = pr['price']
                     if not p_entry['moq'] and pr['moq']:
                         p_entry['moq'] = pr['moq']
                     cid_products.setdefault(cid, set()).add(pr['title'])
 
-    # 解析每个会话的最终归属国家
-    def resolve_country(key_tuple):
+    # 解析每个会话的最终归属国家（区分实测 vs 推断）
+    def resolve_country(key_tuple, thread_obj):
         u_id, c_id = key_tuple
         cinfo = customers.get(key_tuple) or {}
         if cinfo.get('country'):
-            return cinfo['country']
+            return (cinfo['country'], False, '资料实测')
         if c_id in cid_to_country:
-            return cid_to_country[c_id]
+            return (cid_to_country[c_id], False, '卡片实测')
         peer_uid = cinfo.get('uid') or _peer_fallback(c_id, u_id)
         if peer_uid in uid_to_country:
-            return uid_to_country[peer_uid]
-        return ''
+            return (uid_to_country[peer_uid], False, '国旗实测')
+        inferred_code, reason = _infer_country_from_texts(thread_obj.get('in_texts') or [])
+        if inferred_code:
+            return (inferred_code, True, reason)
+        return ('', False, '')
 
     urgent_unreplied = []
     silent_followups = []
@@ -339,6 +436,9 @@ def compute_analytics(store, user='', days=30):
     country_stats = {}
     region_stats = {}
     country_product_map = {}
+    key_meta = {}
+    verified_country_customers = 0
+    inferred_country_customers = 0
 
     for key, t in threads.items():
         cinfo = customers.get(key) or {}
@@ -346,16 +446,51 @@ def compute_analytics(store, user='', days=30):
         stage_counts[stage] = stage_counts.get(stage, 0) + 1
         peer = cinfo.get('display_name') or _peer_fallback(t['cid'], t['user_id'])
         wait_sec = max(0, now_ts - t['last_ts']) if t['last_ts'] else 0
-        country_code = resolve_country(key)
+        country_code, is_inferred, country_reason = resolve_country(key, t)
+        cname, rname = _country_label_ext(country_code) if country_code else ('', '')
+
+        buyer_summary = {
+            'user_id': t['user_id'], 'cid': t['cid'], 'peer': peer,
+            'country': cname, 'inferred': is_inferred, 'reason': country_reason,
+            'stage': cinfo.get('stage') or '', 'last_ts': t['last_ts'],
+            'last_content': t['last_content'],
+        }
+        key_meta[key] = buyer_summary
 
         if country_code:
-            cname, rname = _country_label(country_code)
-            cs = country_stats.setdefault(country_code, {'code': country_code, 'name': cname, 'region': rname, 'buyers': 0, 'messages': 0})
+            if is_inferred:
+                inferred_country_customers += 1
+            else:
+                verified_country_customers += 1
+            cs = country_stats.setdefault(country_code, {
+                'code': country_code, 'name': cname, 'region': rname,
+                'buyers': 0, 'verified_buyers': 0, 'inferred_buyers': 0,
+                'messages': 0, 'buyer_list': []
+            })
             cs['buyers'] += 1
+            if is_inferred:
+                cs['inferred_buyers'] += 1
+            else:
+                cs['verified_buyers'] += 1
             cs['messages'] += t['in_count'] + t['out_count']
-            region_stats[rname] = region_stats.get(rname, 0) + 1
+            cs['buyer_list'].append(buyer_summary)
+
+            rs = region_stats.setdefault(rname, {
+                'region': rname, 'buyers': 0, 'verified_buyers': 0, 'inferred_buyers': 0, 'buyer_list': []
+            })
+            rs['buyers'] += 1
+            if is_inferred:
+                rs['inferred_buyers'] += 1
+            else:
+                rs['verified_buyers'] += 1
+            rs['buyer_list'].append(buyer_summary)
+
             for ptitle in cid_products.get(t['cid'], ()):
-                cp = country_product_map.setdefault(country_code, {'country': cname, 'region': rname, 'products': {}})
+                cp = country_product_map.setdefault(country_code, {
+                    'country': cname, 'region': rname, 'inferred': is_inferred, 'products': {}
+                })
+                if not is_inferred:
+                    cp['inferred'] = False
                 cp['products'][ptitle] = cp['products'].get(ptitle, 0) + 1
 
         if t['last_dir'] == 'in':
@@ -363,7 +498,7 @@ def compute_analytics(store, user='', days=30):
                 accounts[t['user_id']]['unreplied'] += 1
             urgent_unreplied.append({
                 'user_id': t['user_id'], 'cid': t['cid'], 'peer': peer,
-                'country': _country_label(country_code)[0] if country_code else '',
+                'country': cname, 'inferred': is_inferred,
                 'stage': cinfo.get('stage') or '',
                 'wait_minutes': int(wait_sec // 60),
                 'last_ts': t['last_ts'], 'last_content': t['last_content'],
@@ -371,20 +506,20 @@ def compute_analytics(store, user='', days=30):
         elif t['last_dir'] == 'out' and wait_sec >= 86400 and stage not in ('已成交', '冷淡'):
             silent_followups.append({
                 'user_id': t['user_id'], 'cid': t['cid'], 'peer': peer,
-                'country': _country_label(country_code)[0] if country_code else '',
+                'country': cname, 'inferred': is_inferred,
                 'stage': cinfo.get('stage') or '',
                 'wait_hours': round(wait_sec / 3600.0, 1),
                 'last_ts': t['last_ts'], 'last_content': t['last_content'],
             })
 
-    # 把国家关联回产品 + 统计产品热词
-    cid_to_resolved_country = {t['cid']: resolve_country(k) for k, t in threads.items()}
+    # 把国家关联回产品 + 统计产品热词 + 生成商品反向买家列表
+    cid_to_resolved = {t['cid']: key_meta[k]['country'] for k, t in threads.items()}
     keyword_counts = {}
     for p in products.values():
         for c_id in p['cids']:
-            cc = cid_to_resolved_country.get(c_id)
-            if cc:
-                p['countries'].add(_country_label(cc)[0])
+            cn = cid_to_resolved.get(c_id)
+            if cn:
+                p['countries'].add(cn)
         for w in set(_tokenize_title(p['title'])):
             keyword_counts[w] = keyword_counts.get(w, 0) + len(p['cids'])
 
@@ -393,23 +528,38 @@ def compute_analytics(store, user='', days=30):
         for w, c in sorted(keyword_counts.items(), key=lambda x: (-x[1], x[0]))[:16]
     ]
 
-    top_products = [
-        {
+    top_products = []
+    for v in sorted(products.values(), key=lambda x: (-len(x['cids']), -x['count']))[:15]:
+        blist = []
+        for bkey, cnt in sorted(v['buyer_counts'].items(), key=lambda kv: (-kv[1], -(key_meta.get(kv[0], {}).get('last_ts') or 0)))[:25]:
+            bm = key_meta.get(bkey)
+            if bm:
+                blist.append({**bm, 'count': cnt})
+        top_products.append({
             'id': v['id'], 'title': v['title'], 'price': v['price'], 'moq': v['moq'],
             'buyers': len(v['cids']), 'mentions': v['count'],
-            'countries': sorted(v['countries'])[:4]
-        }
-        for v in sorted(products.values(), key=lambda x: (-len(x['cids']), -x['count']))[:15]
-    ]
+            'countries': sorted(v['countries'])[:4],
+            'buyer_list': blist,
+        })
 
-    countries_ranked = sorted(country_stats.values(), key=lambda x: (-x['buyers'], -x['messages']))[:15]
-    regions_ranked = [{'region': k, 'buyers': v} for k, v in sorted(region_stats.items(), key=lambda x: -x[1])]
+    countries_ranked = []
+    for cs in sorted(country_stats.values(), key=lambda x: (-x['buyers'], -x['messages']))[:15]:
+        cs['buyer_list'].sort(key=lambda b: -(b.get('last_ts') or 0))
+        cs['buyer_list'] = cs['buyer_list'][:25]
+        cs['inferred'] = cs['verified_buyers'] == 0
+        countries_ranked.append(cs)
+
+    regions_ranked = []
+    for rs in sorted(region_stats.values(), key=lambda x: -x['buyers']):
+        rs['buyer_list'].sort(key=lambda b: -(b.get('last_ts') or 0))
+        rs['buyer_list'] = rs['buyer_list'][:25]
+        regions_ranked.append(rs)
 
     country_products = []
     for code, entry in sorted(country_product_map.items(), key=lambda kv: -sum(kv[1]['products'].values()))[:10]:
         top_p = sorted(entry['products'].items(), key=lambda x: -x[1])[:3]
         country_products.append({
-            'country': entry['country'], 'region': entry['region'],
+            'country': entry['country'], 'region': entry['region'], 'inferred': entry['inferred'],
             'products': [{'title': t, 'buyers': n} for t, n in top_p]
         })
 
@@ -438,7 +588,9 @@ def compute_analytics(store, user='', days=30):
         'kpi': {
             'total_customers': len(threads),
             'active_customers': sum(1 for t in threads.values() if t['active_in_window']),
-            'identified_country_customers': sum(c['buyers'] for c in country_stats.values()),
+            'identified_country_customers': verified_country_customers + inferred_country_customers,
+            'verified_country_customers': verified_country_customers,
+            'inferred_country_customers': inferred_country_customers,
             'unique_countries': len(country_stats),
             'unique_products': len(products),
             'in_messages': in_msgs,
@@ -460,6 +612,47 @@ def compute_analytics(store, user='', days=30):
         'urgent_unreplied': urgent_unreplied[:12],
         'silent_followups': silent_followups[:12],
     }
+
+
+def build_local_brief(data):
+    """未配置 AI 模型或模型超时时的本地规则选品简报，100% 基于真实统计数据。"""
+    kpi = data.get('kpi') or {}
+    prods = data.get('top_products') or []
+    regions = data.get('regions') or []
+    kws = data.get('top_keywords') or []
+    hours = data.get('hours') or []
+
+    items = []
+    if prods:
+        top3 = '、'.join(p['title'][:36] for p in prods[:3])
+        moq_note = f"（热询款起订量多在 {prods[0]['moq']}）" if prods[0].get('moq') else ''
+        items.append({
+            'tag': '热门选品',
+            'title': f"共 {kpi.get('unique_products', 0)} 款商品产生询盘，核心聚焦 {prods[0]['title'][:28]} 等",
+            'detail': f"咨询量前 3 商品：{top3}{moq_note}。建议点击下方商品行查看对应买家并重点推进。"
+        })
+    if regions:
+        reg_txt = '、'.join(f"{r['region']}({r['buyers']}人)" for r in regions[:3])
+        items.append({
+            'tag': '地域分布',
+            'title': f"已识别 {kpi.get('identified_country_customers', 0)} 位买家地区（实测 {kpi.get('verified_country_customers', 0)} · 推断 {kpi.get('inferred_country_customers', 0)}）",
+            'detail': f"主力市场集中在 {reg_txt}。点击任意大区或国家可直接筛选该区域客户。"
+        })
+    if kws:
+        kw_txt = ' / '.join(k['word'] for k in kws[:6])
+        items.append({
+            'tag': '需求热词',
+            'title': f"高频品类词：{kw_txt}",
+            'detail': '建议在阿里国际站主图标题与 RFQ 报价中优先覆盖上述高频属性词。'
+        })
+    peak_h = max(range(len(hours)), key=lambda i: hours[i]) if hours and max(hours) > 0 else None
+    peak_txt = f"买家咨询高峰在本地 {peak_h}:00 左右。" if peak_h is not None else ''
+    items.append({
+        'tag': '今日动作',
+        'title': f"待回复 {kpi.get('unreplied_count', 0)} 位 · 沉默待唤醒 {kpi.get('silent_followup_count', 0)} 位",
+        'detail': f"{peak_txt}平均响应 {kpi.get('avg_response_minutes') or '—'} 分钟，建议优先处理急需回复客户并针对热询品准备快捷报价。"
+    })
+    return items
 
 
 def export_customers_csv(store, user=''):
