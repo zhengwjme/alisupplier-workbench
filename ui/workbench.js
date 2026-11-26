@@ -93,17 +93,19 @@ function renderList() {
   }
   for (const row of state.rows) {
     const el = button('', () => openDetail(row), 'thread');
-    const client = node('span');
-    const titleEl = node('strong', 'client', row.peer || row.cid);
-    if (row.stage) titleEl.append(node('span', 'stage-pill', row.stage));
-    client.append(titleEl, node('small', 'muted', row.user_id));
-    const summary = node('span', 'thread-summary');
-    summary.append(node('span', 'change', row.changes || row.latest_content || '等待首次汇总'));
-    if (row.next_step) summary.append(node('small', 'muted', '建议：' + row.next_step));
+    const name = row.peer || row.cid;
+    const avatar = node('div', 'thread-avatar', (name || '?').slice(0, 1).toUpperCase());
+    const body = node('div', 'thread-body');
+    const top = node('div', 'thread-top');
+    top.append(node('strong', 'client', name), node('span', 'thread-time', formatTime(row.created_at || row.activity)));
+    const summaryText = row.next_step ? ('建议：' + row.next_step) : (row.changes || row.latest_content || '暂无消息摘要');
+    body.append(top, node('div', 'change', summaryText));
     const [label, type] = statusFor(row);
-    const status = node('span', 'thread-status');
-    status.append(node('span', 'badge ' + type, label), node('small', 'muted', formatTime(row.created_at || row.activity)));
-    el.append(client, summary, status);
+    const foot = node('div', 'thread-foot');
+    foot.append(node('span', 'badge ' + type, label));
+    if (row.stage) foot.append(node('span', 'stage-pill', row.stage));
+    body.append(foot);
+    el.append(avatar, body);
     list.append(el);
   }
   $('more').hidden = !state.more;
@@ -125,28 +127,30 @@ async function loadList(append = false) {
 function renderFrida(frida) {
   const btn = $('frida-toggle');
   if (!btn || !frida) return;
+  const lbl = btn.querySelector('.lbl') || btn;
   btn.dataset.enabled = frida.enabled ? '1' : '0';
-  btn.classList.toggle('primary', Boolean(frida.enabled && frida.state === 'attached'));
+  btn.classList.toggle('active', Boolean(frida.enabled && frida.state === 'attached'));
+  btn.classList.toggle('waiting', Boolean(frida.enabled && frida.state !== 'attached'));
   if (!frida.available) {
-    btn.textContent = '集成不可用';
+    lbl.textContent = '不可用';
     btn.disabled = true;
     btn.title = frida.reason || '未检测到 frida CLI 或 frida_agent.js';
     return;
   }
   btn.disabled = false;
   if (!frida.enabled) {
-    btn.textContent = '启用集成';
+    lbl.textContent = '启用集成';
     btn.title = '点击启用：在阿里卖家点击买家时自动打开对应聊天详情';
   } else if (frida.state === 'attached') {
-    btn.textContent = '联动中' + (frida.pid ? ` (${frida.pid})` : '');
-    btn.title = '已连接阿里卖家，点击可停用集成';
+    lbl.textContent = '联动中';
+    btn.title = `已连接阿里卖家${frida.pid ? ' (PID ' + frida.pid + ')' : ''}，点击停用`;
   } else if (frida.state === 'attaching') {
-    btn.textContent = '正在连接…';
+    lbl.textContent = '连接中…';
   } else if (frida.state === 'error') {
-    btn.textContent = '集成异常';
+    lbl.textContent = '联动异常';
     btn.title = frida.error || 'Frida 联动异常';
   } else {
-    btn.textContent = '等待阿里卖家…';
+    lbl.textContent = '等阿里卖家';
     btn.title = '已启用集成，等待阿里卖家启动';
   }
 }
@@ -670,8 +674,8 @@ async function loadAnalytics() {
   // 选品核心区 1：客户地域分布（大区 + 国家 Top 15）
   const geoGrid = node('div', 'analytics-grid');
   const regPanel = node('section', 'panel');
-  const regH = node('h2', '', '客户大区分布（选品市场方向）');
-  regH.append(node('small', '', '来源：卡片国旗 + Frida 资料'));
+  const regH = node('h2', '', '客户大区分布');
+  regH.append(node('small', '', '卡片 + 实时集成'));
   regPanel.append(regH);
   const regBars = node('div', 'bar-list');
   if (!(data.regions || []).length) {
@@ -718,8 +722,8 @@ async function loadAnalytics() {
   // 选品核心区 2：热门咨询商品 Top 15 + 品类热词 & 国家×商品交叉
   const prPanel = node('section', 'panel');
   prPanel.style.marginBottom = '16px';
-  const prH = node('h2', '', '热门咨询商品 Top 15（选品主榜）');
-  prH.append(node('small', '', '标价 / 起订量 / 咨询买家数 / 来源国家'));
+  const prH = node('h2', '', '热门咨询商品 Top 15');
+  prH.append(node('small', '', '标价 · MOQ · 来源国'));
   prPanel.append(prH);
   if (!(data.top_products || []).length) {
     prPanel.append(node('p', 'muted', '选定周期内暂无商品卡片记录。'));
@@ -853,13 +857,15 @@ async function loadAnalytics() {
   body.append(midGrid);
 }
 
+const screenTitles = { work: '客户跟进', analytics: '选品与统计', settings: 'AI 与设置' };
 for (const el of document.querySelectorAll('[data-screen]')) {
   el.addEventListener('click', async () => {
     const screen = el.dataset.screen;
     $('work-screen').hidden = screen !== 'work';
     $('analytics-screen').hidden = screen !== 'analytics';
     $('settings-screen').hidden = screen !== 'settings';
-    document.querySelectorAll('[data-screen]').forEach(tab => tab.classList.toggle('active', tab === el));
+    if ($('topbar-title')) $('topbar-title').textContent = screenTitles[screen] || '客户跟进';
+    document.querySelectorAll('[data-screen]').forEach(tab => tab.classList.toggle('active', tab.dataset.screen === screen));
     if (screen === 'settings') {
       try { await loadSettings(!state.settingsLoaded); }
       catch (error) { notice(error.message); }
@@ -927,12 +933,12 @@ if (window.alisupplierDesktop?.setWidgetMode) {
     document.body.classList.toggle('widget-mode', Boolean(mode.widget));
     if (widgetBtn) {
       widgetBtn.hidden = false;
-      widgetBtn.textContent = mode.widget ? '展开大窗' : '迷你悬浮';
+      widgetBtn.title = mode.widget ? '展开为完整大窗' : '切换为迷你悬浮窗';
       widgetBtn.classList.toggle('primary', Boolean(mode.widget));
     }
     if (pinBtn) {
       pinBtn.hidden = false;
-      pinBtn.textContent = mode.alwaysOnTop ? '已置顶' : '置顶';
+      pinBtn.title = mode.alwaysOnTop ? '已置顶（点击取消）' : '窗口置顶悬浮';
       pinBtn.classList.toggle('primary', Boolean(mode.alwaysOnTop));
     }
   };
