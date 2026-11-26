@@ -62,8 +62,137 @@
           <div class="hero-kicker">TRADE DESK · <span id="today"></span></div>
           <h1>今日跟进<span class="accent-dot">.</span></h1>
         </div>
-        <div class="hero-art-wrap">
-          <img src="/hero-trade.jpg" alt="国际贸易与面料选品插画" class="hero-art">
+        <div class="hero-art-wrap ai-hero-stage" aria-label="AI 全球询盘与选品智能引擎">
+          <svg class="ai-hero-svg" viewBox="0 0 640 240" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-hidden="true">
+            <defs>
+              <linearGradient id="heroBg" x1="0" y1="0" x2="640" y2="240" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stop-color="#f6f4ee"/>
+                <stop offset="52%" stop-color="#eef1f9"/>
+                <stop offset="100%" stop-color="#f6efe9"/>
+              </linearGradient>
+              <radialGradient id="coreGlow" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stop-color="#233478" stop-opacity="0.22"/>
+                <stop offset="55%" stop-color="#a4562e" stop-opacity="0.08"/>
+                <stop offset="100%" stop-color="#233478" stop-opacity="0"/>
+              </radialGradient>
+              <linearGradient id="beamIndigo" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#233478" stop-opacity="0"/>
+                <stop offset="50%" stop-color="#233478" stop-opacity="0.95"/>
+                <stop offset="100%" stop-color="#5b74d4" stop-opacity="0"/>
+              </linearGradient>
+              <linearGradient id="beamCopper" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#a4562e" stop-opacity="0"/>
+                <stop offset="50%" stop-color="#a4562e" stop-opacity="0.95"/>
+                <stop offset="100%" stop-color="#d4895d" stop-opacity="0"/>
+              </linearGradient>
+              <linearGradient id="coreFill" x1="278" y1="78" x2="362" y2="162" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stop-color="#2a3e8f"/>
+                <stop offset="100%" stop-color="#1b2541"/>
+              </linearGradient>
+              <pattern id="dotGrid" width="24" height="24" patternUnits="userSpaceOnUse">
+                <circle cx="2" cy="2" r="1.15" fill="#233478" fill-opacity="0.14"/>
+              </pattern>
+            </defs>
+
+            <!-- 柔和渐变底 + 精密经纬点阵 -->
+            <rect width="640" height="240" fill="url(#heroBg)"/>
+            <rect width="640" height="240" fill="url(#dotGrid)"/>
+            <circle cx="320" cy="120" r="128" fill="url(#coreGlow)"/>
+
+            <!-- 左侧全球买家节点到中央 AI 核心的贝塞尔航线（底轨 + 流光脉冲） -->
+            <g class="hero-routes">
+              <path d="M 74 58 C 155 48, 206 96, 282 114" stroke="#233478" stroke-opacity="0.16" stroke-width="1.5" stroke-dasharray="4 5"/>
+              <path d="M 52 126 C 138 128, 198 122, 278 120" stroke="#a4562e" stroke-opacity="0.18" stroke-width="1.5" stroke-dasharray="4 5"/>
+              <path d="M 96 188 C 174 188, 218 144, 284 128" stroke="#5c7d6d" stroke-opacity="0.22" stroke-width="1.5" stroke-dasharray="4 5"/>
+
+              <path class="ai-beam beam-1" pathLength="100" d="M 74 58 C 155 48, 206 96, 282 114" stroke="url(#beamIndigo)" stroke-width="2.4" stroke-linecap="round"/>
+              <path class="ai-beam beam-2" pathLength="100" d="M 52 126 C 138 128, 198 122, 278 120" stroke="url(#beamCopper)" stroke-width="2.4" stroke-linecap="round"/>
+              <path class="ai-beam beam-3" pathLength="100" d="M 96 188 C 174 188, 218 144, 284 128" stroke="url(#beamIndigo)" stroke-width="2.2" stroke-linecap="round"/>
+            </g>
+
+            <!-- 左侧全球买家发光节点（带错峰脉冲） -->
+            <g class="hero-nodes">
+              <circle class="node-pulse p1" cx="74" cy="58" r="14" stroke="#233478" stroke-width="1.4"/>
+              <circle cx="74" cy="58" r="5.5" fill="#233478"/>
+              <circle cx="74" cy="58" r="2.2" fill="#ffffff"/>
+
+              <circle class="node-pulse p2" cx="52" cy="126" r="16" stroke="#a4562e" stroke-width="1.4"/>
+              <circle cx="52" cy="126" r="6" fill="#a4562e"/>
+              <circle cx="52" cy="126" r="2.2" fill="#ffffff"/>
+
+              <circle class="node-pulse p3" cx="96" cy="188" r="14" stroke="#5c7d6d" stroke-width="1.4"/>
+              <circle cx="96" cy="188" r="5.5" fill="#5c7d6d"/>
+              <circle cx="96" cy="188" r="2.2" fill="#ffffff"/>
+
+              <!-- 辅助微小装饰节点 -->
+              <circle cx="152" cy="84" r="3" fill="#233478" fill-opacity="0.35"/>
+              <circle cx="170" cy="166" r="3" fill="#a4562e" fill-opacity="0.38"/>
+            </g>
+
+            <!-- 右侧 AI 输出信号连线（中心核心 → 3 张结构化微卡） -->
+            <g class="hero-outputs">
+              <path d="M 362 110 C 412 96, 430 62, 468 62" stroke="#233478" stroke-opacity="0.2" stroke-width="1.5"/>
+              <path d="M 364 120 L 468 120" stroke="#a4562e" stroke-opacity="0.22" stroke-width="1.5"/>
+              <path d="M 362 130 C 412 144, 430 178, 468 178" stroke="#5c7d6d" stroke-opacity="0.24" stroke-width="1.5"/>
+
+              <path class="ai-beam beam-out-1" pathLength="100" d="M 362 110 C 412 96, 430 62, 468 62" stroke="#233478" stroke-width="2.2" stroke-linecap="round"/>
+              <path class="ai-beam beam-out-2" pathLength="100" d="M 364 120 L 468 120" stroke="#a4562e" stroke-width="2.2" stroke-linecap="round"/>
+              <path class="ai-beam beam-out-3" pathLength="100" d="M 362 130 C 412 144, 430 178, 468 178" stroke="#5c7d6d" stroke-width="2.2" stroke-linecap="round"/>
+            </g>
+
+            <!-- 中央 AI 智能引擎核心（双层反向旋转精密刻度环 + 雷达波 + 四芒星） -->
+            <g class="hero-core">
+              <circle class="radar-wave w1" cx="320" cy="120" r="46" stroke="#233478" stroke-width="1.3"/>
+              <circle class="radar-wave w2" cx="320" cy="120" r="46" stroke="#a4562e" stroke-width="1.1"/>
+
+              <g class="orbit-outer">
+                <circle cx="320" cy="120" r="68" stroke="#233478" stroke-opacity="0.26" stroke-width="1.4" stroke-dasharray="6 8"/>
+                <path d="M 272 72 A 68 68 0 0 1 368 72" stroke="#233478" stroke-width="2.6" stroke-linecap="round"/>
+                <circle cx="368" cy="72" r="3.5" fill="#233478"/>
+              </g>
+
+              <g class="orbit-inner">
+                <circle cx="320" cy="120" r="52" stroke="#a4562e" stroke-opacity="0.24" stroke-width="1.2" stroke-dasharray="3 6"/>
+                <path d="M 357 157 A 52 52 0 0 1 283 157" stroke="#a4562e" stroke-width="2.6" stroke-linecap="round"/>
+                <circle cx="283" cy="157" r="3.2" fill="#a4562e"/>
+              </g>
+
+              <!-- 深午夜靛蓝核心圆徽 -->
+              <circle cx="320" cy="120" r="35" fill="url(#coreFill)"/>
+              <circle cx="320" cy="120" r="34.2" stroke="#ffffff" stroke-opacity="0.28" stroke-width="1.2"/>
+
+              <!-- AI 四芒星呼吸火花 -->
+              <g class="core-spark">
+                <path d="M 320 100 L 325.2 114.8 L 340 120 L 325.2 125.2 L 320 140 L 314.8 125.2 L 300 120 L 314.8 114.8 Z" fill="#fafaf7"/>
+                <circle cx="337" cy="103" r="2.4" fill="#e6a67c"/>
+              </g>
+            </g>
+
+            <!-- 右侧 3 张悬浮 AI 洞察微卡（纯几何高级感，任意尺寸高清） -->
+            <g class="hero-card hc-1">
+              <rect x="468" y="42" width="132" height="40" rx="11" fill="#ffffff" fill-opacity="0.92" stroke="#e9e6de" stroke-width="1.2"/>
+              <circle cx="486" cy="62" r="5" fill="#233478"/>
+              <rect x="499" y="54" width="66" height="6" rx="3" fill="#1b2541" fill-opacity="0.78"/>
+              <rect x="499" y="65" width="44" height="5" rx="2.5" fill="#233478" fill-opacity="0.22"/>
+              <rect class="card-bar cb-1" x="499" y="65" width="32" height="5" rx="2.5" fill="#233478"/>
+            </g>
+
+            <g class="hero-card hc-2">
+              <rect x="468" y="100" width="132" height="40" rx="11" fill="#ffffff" fill-opacity="0.92" stroke="#e9e6de" stroke-width="1.2"/>
+              <circle cx="486" cy="120" r="5" fill="#a4562e"/>
+              <rect x="499" y="112" width="76" height="6" rx="3" fill="#1b2541" fill-opacity="0.78"/>
+              <rect x="499" y="123" width="54" height="5" rx="2.5" fill="#a4562e" fill-opacity="0.2"/>
+              <rect class="card-bar cb-2" x="499" y="123" width="40" height="5" rx="2.5" fill="#a4562e"/>
+            </g>
+
+            <g class="hero-card hc-3">
+              <rect x="468" y="158" width="132" height="40" rx="11" fill="#ffffff" fill-opacity="0.92" stroke="#e9e6de" stroke-width="1.2"/>
+              <circle cx="486" cy="178" r="5" fill="#5c7d6d"/>
+              <rect x="499" y="170" width="58" height="6" rx="3" fill="#1b2541" fill-opacity="0.78"/>
+              <rect x="499" y="181" width="48" height="5" rx="2.5" fill="#5c7d6d" fill-opacity="0.22"/>
+              <path d="M 576 178 L 580 182 L 588 173" stroke="#5c7d6d" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+            </g>
+          </svg>
         </div>
       </div>
 

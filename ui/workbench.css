@@ -168,16 +168,73 @@ body.platform-darwin .navigation { padding-top: 48px; }
 .accent-dot { color: var(--indigo); }
 .hero-art-wrap {
   margin-top: 12px;
-  border-radius: 12px;
+  border-radius: 14px;
   overflow: hidden;
-  background: #e3ecee;
+  border: 1px solid var(--hairline);
+  background: #eef1f9;
 }
-.hero-art {
+.ai-hero-svg {
   display: block;
   width: 100%;
-  aspect-ratio: 16 / 7;
-  object-fit: cover;
-  object-position: center 62%;
+  height: auto;
+  aspect-ratio: 640 / 240;
+}
+
+/* 首页 AI 全球询盘 SVG 动效 */
+@keyframes orbitCW {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@keyframes orbitCCW {
+  from { transform: rotate(360deg); }
+  to { transform: rotate(0deg); }
+}
+@keyframes sparkBreath {
+  0%, 100% { transform: scale(1); opacity: 0.96; }
+  50% { transform: scale(1.09); opacity: 1; }
+}
+@keyframes beamFlow {
+  0% { stroke-dashoffset: 120; opacity: 0; }
+  18% { opacity: 1; }
+  82% { opacity: 1; }
+  100% { stroke-dashoffset: -30; opacity: 0; }
+}
+@keyframes nodePulse {
+  0% { transform: scale(0.55); opacity: 0.65; }
+  80% { transform: scale(1.25); opacity: 0; }
+  100% { transform: scale(1.25); opacity: 0; }
+}
+@keyframes radarExpand {
+  0% { transform: scale(0.85); opacity: 0.45; }
+  100% { transform: scale(1.95); opacity: 0; }
+}
+@keyframes cardFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+.orbit-outer { transform-origin: 320px 120px; animation: orbitCW 26s linear infinite; }
+.orbit-inner { transform-origin: 320px 120px; animation: orbitCCW 18s linear infinite; }
+.core-spark { transform-origin: 320px 120px; animation: sparkBreath 3.2s ease-in-out infinite; }
+.radar-wave { transform-origin: 320px 120px; animation: radarExpand 3.6s cubic-bezier(0.16, 1, 0.3, 1) infinite; }
+.radar-wave.w2 { animation-delay: 1.8s; }
+.ai-beam {
+  stroke-dasharray: 24 126;
+  stroke-dashoffset: 120;
+  animation: beamFlow 2.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+.ai-beam.beam-2 { animation-delay: 0.9s; }
+.ai-beam.beam-3 { animation-delay: 1.7s; }
+.ai-beam.beam-out-1 { animation-duration: 2.4s; animation-delay: 0.5s; }
+.ai-beam.beam-out-2 { animation-duration: 2.4s; animation-delay: 1.3s; }
+.ai-beam.beam-out-3 { animation-duration: 2.4s; animation-delay: 2.0s; }
+.node-pulse { transform-box: fill-box; transform-origin: center; animation: nodePulse 2.8s ease-out infinite; }
+.node-pulse.p2 { animation-delay: 0.95s; }
+.node-pulse.p3 { animation-delay: 1.85s; }
+.hero-card { animation: cardFloat 4.2s ease-in-out infinite; }
+.hero-card.hc-2 { animation-delay: 0.7s; }
+.hero-card.hc-3 { animation-delay: 1.4s; }
+@media (prefers-reduced-motion: reduce) {
+  .orbit-outer, .orbit-inner, .core-spark, .radar-wave, .ai-beam, .node-pulse, .hero-card { animation: none !important; }
 }
 
 /* 控件基础语法 */
