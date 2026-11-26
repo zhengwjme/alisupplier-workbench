@@ -280,8 +280,41 @@ function renderMessage(message, row) {
   return el;
 }
 
+let activeDetailView = 'overview';
+let currentDetailMeta = { title: '客户详情', sub: '', msgCount: 0 };
+
+function setDetailView(view, scrollToBottom = false) {
+  activeDetailView = view;
+  const dlg = $('detail');
+  if (dlg) dlg.dataset.view = view;
+  const overview = document.querySelector('.detail-view-overview');
+  const chat = document.querySelector('.detail-view-chat');
+  if (overview) overview.hidden = view !== 'overview';
+  if (chat) chat.hidden = view !== 'chat';
+  const chatBtn = $('detail-chat-btn');
+  if (chatBtn) chatBtn.hidden = view === 'chat';
+  const closeBtn = $('close-detail');
+  if (closeBtn) {
+    closeBtn.title = view === 'chat' ? '返回客户详情' : '返回列表';
+    closeBtn.setAttribute('aria-label', closeBtn.title);
+  }
+  if (view === 'chat') {
+    $('detail-title').textContent = '聊天记录';
+    $('detail-account').textContent = `${currentDetailMeta.title}${currentDetailMeta.msgCount ? ' · ' + currentDetailMeta.msgCount + ' 条消息' : ''}`;
+    if (scrollToBottom) {
+      const sc = $('detail-scroll');
+      if (sc) requestAnimationFrame(() => { sc.scrollTop = sc.scrollHeight; });
+    }
+  } else {
+    $('detail-title').textContent = currentDetailMeta.title;
+    $('detail-account').textContent = currentDetailMeta.sub;
+    const sc = $('detail-scroll');
+    if (sc) sc.scrollTop = 0;
+  }
+}
+
 async function openEvidence(row, ids) {
-  switchDetailTab('chat');
+  setDetailView('chat', false);
   const list = $('evidence-messages');
   if (!list) return;
   const missing = ids.filter(id => !list.querySelector('[data-message-id="' + id + '"]'));
@@ -296,30 +329,17 @@ async function openEvidence(row, ids) {
   list.querySelector('.message.active')?.scrollIntoView({block: 'center', behavior: 'smooth'});
 }
 
-let activeDetailTab = 'chat';
-
-function switchDetailTab(tab) {
-  activeDetailTab = tab;
-  document.querySelectorAll('.detail-seg-btn').forEach(btn => {
-    const on = btn.dataset.dtab === tab;
-    btn.classList.toggle('active', on);
-    btn.setAttribute('aria-selected', String(on));
-  });
-  document.querySelectorAll('.detail-pane').forEach(pane => {
-    pane.hidden = pane.dataset.dpane !== tab;
-  });
-}
-
-function renderCustomerProfilePane(data, user, cid, row, onStageSync) {
+function renderCustomerOverviewCard(data, user, cid, row) {
   const c = data.customer || {};
   const stats = data.stats || {};
   const name = c.display_name || row.peer || cid;
   const uid = c.uid || (cid.includes('-') ? cid.split('-')[0] : '');
   const domain = cid.includes('@') ? cid.split('@').pop() : '';
 
-  const wrap = node('div', 'profile-pane');
+  const sec = node('section', 'detail-section customer-overview');
 
-  const head = node('div', 'profile-hero');
+  // 顶行：头像 + 名称/ID + 阶段下拉
+  const top = node('div', 'overview-top');
   const avatar = node('div', 'customer-avatar');
   if (c.avatar_url && /^https?:\/\//.test(c.avatar_url)) {
     const img = node('img');
@@ -330,44 +350,85 @@ function renderCustomerProfilePane(data, user, cid, row, onStageSync) {
   } else {
     avatar.textContent = (name || '?').slice(0, 1).toUpperCase();
   }
-  const titleWrap = node('div', 'profile-hero-text');
-  titleWrap.append(
+  const idInfo = node('div', 'profile-hero-text');
+  idInfo.append(
     node('div', 'customer-name', name),
-    node('div', 'customer-sub', [uid ? 'UID ' + uid : '', domain ? domain : ''].filter(Boolean).join(' · ') || cid)
+    node('div', 'customer-sub', [c.extra?.country || '', uid ? 'UID ' + uid : '', domain || ''].filter(Boolean).join(' · ') || cid)
   );
-  head.append(avatar, titleWrap);
-  wrap.append(head);
+
+  const stageWrap = node('div', 'detail-stage-wrap');
+  const stageSel = node('select', 'detail-stage-select');
+  stageSel.id = 'detail-stage-select';
+  stageSel.setAttribute('aria-label', '客户阶段');
+  const stages = ['', '新询盘', '需求确认', '已报价', '寄样中', '谈判逼单', '已成交', '冷淡'];
+  for (const s of stages) stageSel.append(new Option(s || '未标阶段', s));
+  stageSel.value = c.stage || '';
+  stageWrap.classList.toggle('has-stage', Boolean(c.stage));
+  stageWrap.append(stageSel);
+  stageWrap.insertAdjacentHTML('beforeend', '<svg class="stage-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>');
+
+  top.append(avatar, idInfo, stageWrap);
+  sec.append(top);
+
+  // 3 列紧凑互动指标
+  const metrics = node('div', 'overview-metrics');
+  const addMetric = (label, val) => {
+    const m = node('div', 'overview-metric');
+    m.append(node('span', '', label), node('strong', '', val));
+    metrics.append(m);
+  };
+  addMetric('消息数', stats.total_messages ? stats.total_messages + ' 条' : '0 条');
+  addMetric('首次互动', stats.first_at ? formatTime(stats.first_at) : '—');
+  addMetric('最近更新', stats.last_at ? formatTime(stats.last_at) : '—');
+  sec.append(metrics);
+
+  // 扩展资料（如有 Frida 同步的国家/公司等）
+  const extraPairs = [];
+  if (c.extra && typeof c.extra === 'object') {
+    for (const [k, v] of Object.entries(c.extra)) {
+      if (v && typeof v === 'string' && !k.startsWith('_') && k !== 'country') extraPairs.push([k, v]);
+    }
+  }
+  if (extraPairs.length) {
+    const extraGrid = node('div', 'customer-grid overview-extra');
+    for (const [k, v] of extraPairs) {
+      const item = node('div', 'customer-kv');
+      item.append(node('span', '', k), node('strong', '', v));
+      extraGrid.append(item);
+    }
+    sec.append(extraGrid);
+  }
 
   // 快捷标签 + 私密备注
-  const crm = node('section', 'detail-section');
-  crm.append(node('h3', 'detail-sec-title', '标签与跟进备注'));
   const tagRow = node('div', 'crm-tags');
   const presetTags = ['高意向', '价格敏感', '已加WA', '老客户', '催样中'];
   let activeTags = new Set(Array.isArray(c.tags) ? c.tags : []);
   const noteInput = node('textarea', 'crm-note');
-  noteInput.placeholder = '记录目标价、WhatsApp、样卡单号或避坑点… 失焦自动保存';
+  noteInput.placeholder = '记录客户备注（如：目标价、WhatsApp、样卡单号）… 失焦自动保存';
   noteInput.setAttribute('aria-label', '客户私密备注');
   noteInput.value = c.note || '';
 
   const saveMeta = async (silent = false) => {
     try {
-      const stageVal = $('detail-stage-select')?.value ?? (c.stage || '');
       await api('/api/workbench/customer-note', {
         user, cid,
-        stage: stageVal,
+        stage: stageSel.value,
         tags: [...activeTags],
         note: noteInput.value
       });
       c.tags = [...activeTags];
       c.note = noteInput.value;
-      c.stage = stageVal;
-      if (onStageSync) onStageSync(c);
+      c.stage = stageSel.value;
       if (!silent) notice('已保存客户档案');
       loadList().catch(() => {});
     } catch (error) {
       notice(error.message);
     }
   };
+  stageSel.addEventListener('change', () => {
+    stageWrap.classList.toggle('has-stage', Boolean(stageSel.value));
+    saveMeta(false);
+  });
   noteInput.addEventListener('blur', () => {
     if (noteInput.value !== (c.note || '')) saveMeta(false);
   });
@@ -380,40 +441,23 @@ function renderCustomerProfilePane(data, user, cid, row, onStageSync) {
     }, 'tag-chip' + (activeTags.has(tag) ? ' active' : ''));
     tagRow.append(chip);
   }
-  crm.append(tagRow, noteInput);
-  wrap.append(crm);
+  sec.append(tagRow, noteInput);
 
-  // 互动数据与扩展信息
-  const metaSec = node('section', 'detail-section');
-  metaSec.append(node('h3', 'detail-sec-title', '互动记录与资料'));
-  const grid = node('div', 'customer-grid');
-  const kv = (targetGrid, label, val) => {
-    if (val === null || val === undefined || val === '') return;
-    const item = node('div', 'customer-kv');
-    item.append(node('span', '', label), node('strong', '', String(val)));
-    targetGrid.append(item);
-  };
-  kv(grid, '累计消息', stats.total_messages ? stats.total_messages + ' 条' : '暂无');
-  kv(grid, '最近消息', stats.last_at ? formatTime(stats.last_at, true) : '暂无');
-  if (stats.first_at) kv(grid, '首次互动', formatTime(stats.first_at, true));
-  if (c.updated_at) kv(grid, '资料同步', formatTime(c.updated_at, true));
-  if (c.extra && typeof c.extra === 'object') {
-    for (const [k, v] of Object.entries(c.extra)) {
-      if (v && typeof v === 'string' && !k.startsWith('_')) kv(grid, k, v);
-    }
-  }
-  metaSec.append(grid);
-
+  // 折叠的账号与会话标识
   const more = node('details', 'customer-more');
   more.append(node('summary', '', '账号与会话标识'));
   const moreGrid = node('div', 'customer-grid');
-  kv(moreGrid, '卖家账号', user);
-  kv(moreGrid, '会话 CID', cid);
+  const kv = (label, val) => {
+    const item = node('div', 'customer-kv');
+    item.append(node('span', '', label), node('strong', '', String(val)));
+    moreGrid.append(item);
+  };
+  kv('卖家账号', user);
+  kv('会话 CID', cid);
   more.append(moreGrid);
-  metaSec.append(more);
-  wrap.append(metaSec);
+  sec.append(more);
 
-  return wrap;
+  return sec;
 }
 
 function renderDetailComposer(user, cid) {
@@ -502,16 +546,16 @@ async function openDetail(row, checked = true) {
   const scroll = $('detail-scroll');
   const isSame = state.selected && state.selected.user_id === row.user_id && state.selected.cid === row.cid;
   const previousScroll = isSame ? scroll.scrollTop : 0;
-  if (!isSame) activeDetailTab = 'chat';
+  if (!isSame) activeDetailView = 'overview';
   state.selected = row;
   const user = row.user_id, cid = row.cid;
   $('detail-title').textContent = row.peer || cid;
   $('detail-account').textContent = '正在加载会话…';
   if (!$('detail').open) $('detail').showModal();
 
-  // 顶栏动作按钮绑定当前会话
   const runBtn = $('detail-run-btn');
   const refreshBtn = $('detail-refresh-btn');
+  const chatBtn = $('detail-chat-btn');
   if (runBtn) {
     runBtn.onclick = async () => {
       runBtn.disabled = true;
@@ -529,6 +573,9 @@ async function openDetail(row, checked = true) {
   if (refreshBtn) {
     refreshBtn.onclick = () => openDetail(row, true);
   }
+  if (chatBtn) {
+    chatBtn.onclick = () => setDetailView('chat', true);
+  }
 
   const data = await api('/api/workbench/detail' + params({user, cid}));
   if (request !== detailRequest || !$('detail').open) return;
@@ -538,100 +585,62 @@ async function openDetail(row, checked = true) {
   const products = Array.isArray(data.products) ? data.products : [];
   const report = data.reports[0];
 
-  if (c.display_name) {
-    $('detail-title').textContent = c.display_name;
-    row.peer = c.display_name;
-  }
+  const displayName = c.display_name || row.peer || cid;
+  if (c.display_name) row.peer = c.display_name;
   const subParts = [];
   if (c.extra?.country) subParts.push(c.extra.country);
   else if (c.uid) subParts.push('UID ' + c.uid);
   if (stats.total_messages) subParts.push(stats.total_messages + ' 条消息');
-  if (stats.last_at) subParts.push('更新于 ' + formatTime(stats.last_at));
-  $('detail-account').textContent = subParts.join(' · ') || user;
-
-  // 顶部状态带 + 3 段式切换条（固定在顶栏下方，不随滚动消失）
-  const subbar = $('detail-subbar');
-  const statusStrip = node('div', 'detail-status-strip');
-
-  const stageWrap = node('div', 'detail-stage-wrap');
-  const stageSel = node('select', 'detail-stage-select');
-  stageSel.id = 'detail-stage-select';
-  stageSel.setAttribute('aria-label', '客户阶段');
-  const stages = ['', '新询盘', '需求确认', '已报价', '寄样中', '谈判逼单', '已成交', '冷淡'];
-  for (const s of stages) stageSel.append(new Option(s || '未标阶段', s));
-  stageSel.value = c.stage || '';
-  stageWrap.classList.toggle('has-stage', Boolean(c.stage));
-  stageSel.addEventListener('change', async () => {
-    stageWrap.classList.toggle('has-stage', Boolean(stageSel.value));
-    try {
-      await api('/api/workbench/customer-note', {
-        user, cid,
-        stage: stageSel.value,
-        tags: Array.isArray(c.tags) ? c.tags : [],
-        note: c.note || ''
-      });
-      c.stage = stageSel.value;
-      notice(c.stage ? '已更新阶段：' + c.stage : '已清除阶段标记');
-      loadList().catch(() => {});
-    } catch (error) {
-      notice(error.message);
-    }
-  });
-  stageWrap.append(stageSel);
-  stageWrap.insertAdjacentHTML('beforeend', '<svg class="stage-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>');
-
-  const stripMeta = node('div', 'detail-strip-tags');
-  const renderStripTags = (cust) => {
-    stripMeta.replaceChildren();
-    const tags = Array.isArray(cust.tags) ? cust.tags : [];
-    for (const t of tags.slice(0, 2)) {
-      stripMeta.append(node('span', 'mini-tag', t));
-    }
-    if (tags.length > 2) stripMeta.append(node('span', 'mini-tag', '+' + (tags.length - 2)));
-    if (products.length) {
-      const prodBadge = button(`${products.length} 款商品`, () => switchDetailTab('insight'), 'mini-prod-pill');
-      stripMeta.append(prodBadge);
-    }
+  currentDetailMeta = {
+    title: displayName,
+    sub: subParts.join(' · ') || user,
+    msgCount: stats.total_messages || data.messages.length || 0
   };
-  renderStripTags(c);
-  statusStrip.append(stageWrap, stripMeta);
 
-  const seg = node('div', 'detail-seg');
-  seg.setAttribute('role', 'tablist');
-  const tabs = [
-    ['chat', `对话${stats.total_messages ? ' (' + stats.total_messages + ')' : ''}`],
-    ['insight', `概要${products.length ? ' · 商品' : ''}`],
-    ['profile', '档案 · 备注']
-  ];
-  for (const [key, label] of tabs) {
-    const b = button(label, () => switchDetailTab(key), 'detail-seg-btn' + (activeDetailTab === key ? ' active' : ''));
-    b.dataset.dtab = key;
-    b.setAttribute('role', 'tab');
-    b.setAttribute('aria-selected', String(activeDetailTab === key));
-    seg.append(b);
-  }
-  subbar.replaceChildren(statusStrip, seg);
-
-  // 分段 1：对话（首屏直达聊天记录）
-  const chatPane = node('div', 'detail-pane');
-  chatPane.dataset.dpane = 'chat';
-  chatPane.hidden = activeDetailTab !== 'chat';
+  // 视图 1：客户信息 + AI 总结 + 咨询过的商品（默认打开即看）
+  const overview = node('div', 'detail-view-overview');
 
   if (row.error || row.pending) {
-    const banner = node('div', 'detail-inline-banner' + (row.error ? ' err' : ''), row.error || '有新消息待汇总，可点右上角星标立即汇总');
-    chatPane.append(banner);
-  }
-  if (report?.next_step && row.handled !== report.id) {
-    const tip = node('button', 'detail-next-banner');
-    tip.type = 'button';
-    tip.append(
-      node('span', 'detail-next-kicker', '建议跟进'),
-      node('span', 'detail-next-text', report.next_step)
-    );
-    tip.addEventListener('click', () => switchDetailTab('insight'));
-    chatPane.append(tip);
+    const banner = node('div', 'detail-inline-banner' + (row.error ? ' err' : ''), row.error || '有新消息待汇总，可点右上角星标立即更新总结');
+    overview.append(banner);
   }
 
+  // 1) AI 总结（核心主角）
+  const aiSec = node('section', 'detail-section ai-summary-sec');
+  const aiHead = node('div', 'detail-sec-head');
+  aiHead.append(
+    node('h3', 'detail-sec-title', 'AI 总结'),
+    button(`查看聊天记录 (${currentDetailMeta.msgCount}) ›`, () => setDetailView('chat', true), 'link-chat-btn')
+  );
+  aiSec.append(aiHead);
+
+  if (report) {
+    aiSec.append(reportBlock(report, row));
+    if (data.reports.length > 1) {
+      const history = node('details', 'detail-history');
+      history.append(node('summary', '', `查看更早的 ${data.reports.length - 1} 轮历史总结`));
+      history.append(...data.reports.slice(1).map(item => reportBlock(item, row, false)));
+      aiSec.append(history);
+    }
+  } else {
+    const emptyRep = node('div', 'detail-empty-box');
+    emptyRep.append(
+      node('p', '', '还没有 AI 汇总总结，点击生成本客户的需求与跟进建议。'),
+      button('立即生成 AI 总结', () => runBtn?.click(), 'button primary')
+    );
+    aiSec.append(emptyRep);
+  }
+  overview.append(aiSec);
+
+  // 2) 该买家咨询过的商品
+  const prodSec = renderCustomerProducts(products);
+  if (prodSec) overview.append(prodSec);
+
+  // 3) 客户信息与跟进备注
+  overview.append(renderCustomerOverviewCard(data, user, cid, row));
+
+  // 视图 2：独立二级聊天记录对话界面（点击「聊天」或「查看聊天记录」后跳转）
+  const chatView = node('div', 'detail-view-chat');
   const list = node('div');
   list.id = 'evidence-messages';
   if (data.more && data.messages.length) {
@@ -644,55 +653,19 @@ async function openDetail(row, checked = true) {
         .map(message => renderMessage(message, row)));
       more.hidden = !batch.more;
     }, 'load-earlier-btn');
-    chatPane.append(more);
+    chatView.append(more);
   }
   if (data.messages.length) {
     list.append(...data.messages.map(message => renderMessage(message, row)));
   } else {
     list.append(node('div', 'empty', '暂无同步到的消息记录'));
   }
-  chatPane.append(list);
+  chatView.append(list);
 
-  // 分段 2：概要 · 商品
-  const insightPane = node('div', 'detail-pane');
-  insightPane.dataset.dpane = 'insight';
-  insightPane.hidden = activeDetailTab !== 'insight';
-
-  if (report) {
-    insightPane.append(reportBlock(report, row));
-  } else {
-    const emptyRep = node('div', 'detail-empty-box');
-    emptyRep.append(
-      node('p', '', '还没有 AI 汇总概要。'),
-      button('立即生成概要', () => runBtn?.click(), 'button primary')
-    );
-    insightPane.append(emptyRep);
-  }
-  const prodSec = renderCustomerProducts(products);
-  if (prodSec) insightPane.append(prodSec);
-  if (data.reports.length > 1) {
-    const history = node('details', 'detail-history');
-    history.append(node('summary', '', `查看更早的 ${data.reports.length - 1} 轮历史概要`));
-    history.append(...data.reports.slice(1).map(item => reportBlock(item, row, false)));
-    insightPane.append(history);
-  }
-
-  // 分段 3：档案 · 备注
-  const profilePane = node('div', 'detail-pane');
-  profilePane.dataset.dpane = 'profile';
-  profilePane.hidden = activeDetailTab !== 'profile';
-  profilePane.append(renderCustomerProfilePane(data, user, cid, row, renderStripTags));
-
-  scroll.replaceChildren(chatPane, insightPane, profilePane);
+  scroll.replaceChildren(overview, chatView);
   renderDetailComposer(user, cid);
-
-  if (isSame) {
-    scroll.scrollTop = previousScroll;
-  } else if (activeDetailTab === 'chat') {
-    requestAnimationFrame(() => { scroll.scrollTop = scroll.scrollHeight; });
-  } else {
-    scroll.scrollTop = 0;
-  }
+  setDetailView(activeDetailView, false);
+  if (isSame) scroll.scrollTop = previousScroll;
 
   if (checked && report && row.checked !== report.id) {
     await api('/api/workbench/mark', {user, cid, report: report.id, field: 'checked'}).catch(() => {});
@@ -1104,8 +1077,17 @@ $('export-csv')?.addEventListener('click', async () => {
     notice(error.message);
   }
 });
-$('close-detail').addEventListener('click', () => $('detail').close());
-$('detail').addEventListener('close', () => { state.selected = null; });
+$('close-detail').addEventListener('click', () => {
+  if (activeDetailView === 'chat') setDetailView('overview');
+  else $('detail').close();
+});
+$('detail').addEventListener('cancel', e => {
+  if (activeDetailView === 'chat') {
+    e.preventDefault();
+    setDetailView('overview');
+  }
+});
+$('detail').addEventListener('close', () => { state.selected = null; activeDetailView = 'overview'; });
 $('more').addEventListener('click', () => loadList(true).catch(error => notice(error.message)));
 $('accounts').addEventListener('change', () => selectFilter(state.filter));
 $('search').addEventListener('input', () => selectFilter(state.filter));
