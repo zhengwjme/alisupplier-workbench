@@ -80,7 +80,7 @@ async function makeBackend(temp, platform, target, hash) {
     path.join(backend, 'certifi-LICENSE'));
   await fs.access(platform === 'win32' ? path.join(backend, 'python', 'python.exe') :
     path.join(backend, 'python', 'bin', 'python3'));
-  await Promise.all(['server.py', 'ai_gateway.py', 'workbench.py', 'workbench_media.py', 'frida_agent.js'].map(file =>
+  await Promise.all(['server.py', 'ai_gateway.py', 'analytics.py', 'workbench.py', 'workbench_media.py', 'frida_agent.js'].map(file =>
     fs.copyFile(path.join(parent, file), path.join(backend, file))));
   await fs.cp(path.join(parent, 'ui'), path.join(backend, 'ui'), { recursive: true });
   return backend;

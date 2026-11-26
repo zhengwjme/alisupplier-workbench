@@ -491,6 +491,8 @@ class Workbench:
                    r.id report_id,r.created_at,r.covered_at,r.body
                    ,(SELECT content FROM messages m WHERE m.user_id=t.user_id AND m.cid=t.cid
                      ORDER BY m.id DESC LIMIT 1) latest_content
+                   ,(SELECT direction FROM messages m WHERE m.user_id=t.user_id AND m.cid=t.cid
+                     ORDER BY COALESCE(m.msg_time,m.captured_at) DESC, m.id DESC LIMIT 1) last_direction
             FROM threads t LEFT JOIN pending p USING(user_id,cid)
             LEFT JOIN wb_state s USING(user_id,cid)
             LEFT JOIN wb_reports r ON r.id=(
@@ -499,6 +501,8 @@ class Workbench:
             WHERE (?='' OR instr(lower(t.cid),lower(?))>0 OR instr(lower(COALESCE(r.body,'')),lower(?))>0)
               AND CASE ?
                 WHEN 'follow' THEN COALESCE(json_extract(r.body,'$.next_step'),'')<>'' AND s.handled<>r.id
+                WHEN 'unreplied' THEN (SELECT direction FROM messages m WHERE m.user_id=t.user_id AND m.cid=t.cid ORDER BY COALESCE(m.msg_time,m.captured_at) DESC, m.id DESC LIMIT 1)='in'
+                WHEN 'silent' THEN (SELECT direction FROM messages m WHERE m.user_id=t.user_id AND m.cid=t.cid ORDER BY COALESCE(m.msg_time,m.captured_at) DESC, m.id DESC LIMIT 1)='out' AND (strftime('%s','now') - t.activity) >= 86400
                 WHEN 'recent' THEN r.id IS NOT NULL AND s.checked<>r.id
                 WHEN 'review' THEN COALESCE(json_extract(r.body,'$.review'),'')<>''
                   OR COALESCE(json_array_length(r.body,'$.attachments'),0)>0 OR s.error IS NOT NULL

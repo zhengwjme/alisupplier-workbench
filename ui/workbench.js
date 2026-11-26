@@ -81,8 +81,15 @@ function renderList() {
   const list = $('list');
   list.replaceChildren();
   if (!state.rows.length) {
-    const empty = {follow: '暂时没有待跟进的概要。', recent: '没有未查看的汇总。', review: '暂时没有需要核对的汇总。', all: '没有匹配的会话。'};
-    list.append(node('div', 'empty', empty[state.filter]));
+    const empty = {
+      unreplied: '太棒了，当前没有未回复的买家消息。',
+      silent: '当前没有超过 24 小时未回的沉默客户。',
+      follow: '暂时没有待跟进的概要。',
+      recent: '没有未查看的汇总。',
+      review: '暂时没有需要核对的汇总。',
+      all: '没有匹配的会话。'
+    };
+    list.append(node('div', 'empty', empty[state.filter] || '暂无数据'));
   }
   for (const row of state.rows) {
     const el = button('', () => openDetail(row), 'thread');
@@ -637,20 +644,161 @@ $('add-profile').addEventListener('click', () => {
   refreshSelectors(pick ? {text_profile: editor.dataset.id} : {});
   $('profiles').lastElementChild.querySelector('input').focus();
 });
+async function loadAnalytics() {
+  const body = $('analytics-body');
+  if (!body) return;
+  const days = $('analytics-days')?.value ?? '30';
+  const user = $('accounts')?.value || '';
+  const data = await api('/api/workbench/analytics' + params({ days, user }));
+  const kpi = data.kpi || {};
+  body.replaceChildren();
+
+  const kpiGrid = node('div', 'kpi-grid');
+  const addKpi = (label, val, sub, cls = '') => {
+    const card = node('div', 'kpi-card');
+    card.append(node('div', 'kpi-label', label), node('div', 'kpi-value ' + cls, String(val)), node('div', 'kpi-sub', sub));
+    kpiGrid.append(card);
+  };
+  addKpi('总客户 / 周期活跃', `${kpi.total_customers || 0} / ${kpi.active_customers || 0}`, `买家消息 ${kpi.in_messages || 0} · 我方 ${kpi.out_messages || 0}`);
+  addKpi('待我回复', kpi.unreplied_count || 0, '最后一条为买家发送', (kpi.unreplied_count || 0) > 0 ? 'warn' : 'accent');
+  addKpi('沉默待唤醒 (>24h)', kpi.silent_followup_count || 0, '我方已发且超 24h 未回', (kpi.silent_followup_count || 0) > 0 ? 'warn' : '');
+  const respText = kpi.avg_response_minutes !== null && kpi.avg_response_minutes !== undefined ? kpi.avg_response_minutes + ' 分钟' : '暂无样本';
+  const rateText = kpi.within_1h_rate !== null && kpi.within_1h_rate !== undefined ? `1小时回复率 ${kpi.within_1h_rate}% (${kpi.response_samples}次)` : '需产生问答交互后统计';
+  addKpi('平均响应耗时', respText, rateText, 'accent');
+  body.append(kpiGrid);
+
+  const topGrid = node('div', 'analytics-grid');
+  const unPanel = node('section', 'panel');
+  const unH = node('h2', '', '急需回复客户');
+  unH.append(node('small', '', '点击直接打开详情'));
+  unPanel.append(unH);
+  const unList = node('div', 'action-list');
+  if (!(data.urgent_unreplied || []).length) {
+    unList.append(node('p', 'muted', '暂无待回复客户。'));
+  } else {
+    for (const item of data.urgent_unreplied) {
+      const btn = button('', () => openDetail({ user_id: item.user_id, cid: item.cid, peer: item.peer }, false), 'action-item');
+      const main = node('div', 'action-item-main');
+      main.append(node('strong', '', item.peer + (item.stage ? ` [${item.stage}]` : '')), node('small', '', item.last_content || '等待回复'));
+      const waitTxt = item.wait_minutes >= 60 ? Math.floor(item.wait_minutes / 60) + '小时' : item.wait_minutes + '分钟';
+      btn.append(main, node('span', 'badge warn', '已等 ' + waitTxt));
+      unList.append(btn);
+    }
+  }
+  unPanel.append(unList);
+
+  const siPanel = node('section', 'panel');
+  const siH = node('h2', '', '沉默待唤醒客户 (>24h)');
+  siH.append(node('small', '', '适合二次跟进'));
+  siPanel.append(siH);
+  const siList = node('div', 'action-list');
+  if (!(data.silent_followups || []).length) {
+    siList.append(node('p', 'muted', '暂无超过 24 小时未回的客户。'));
+  } else {
+    for (const item of data.silent_followups) {
+      const btn = button('', () => openDetail({ user_id: item.user_id, cid: item.cid, peer: item.peer }, false), 'action-item');
+      const main = node('div', 'action-item-main');
+      main.append(node('strong', '', item.peer + (item.stage ? ` [${item.stage}]` : '')), node('small', '', item.last_content || '我方已发送'));
+      btn.append(main, node('span', 'badge neutral', item.wait_hours + 'h 前'));
+      siList.append(btn);
+    }
+  }
+  siPanel.append(siList);
+  topGrid.append(unPanel, siPanel);
+  body.append(topGrid);
+
+  const midGrid = node('div', 'analytics-grid');
+  const stPanel = node('section', 'panel');
+  stPanel.append(node('h2', '', '客户意向阶段分布'));
+  const stBars = node('div', 'bar-list');
+  const maxStage = Math.max(1, ...(data.stages || []).map(s => s.count));
+  for (const s of data.stages || []) {
+    const row = node('div', 'bar-row');
+    const track = node('div', 'bar-track');
+    const fill = node('div', 'bar-fill');
+    fill.style.width = Math.round((s.count / maxStage) * 100) + '%';
+    track.append(fill);
+    row.append(node('span', '', s.stage), track, node('strong', '', String(s.count)));
+    stBars.append(row);
+  }
+  stPanel.append(stBars);
+
+  const hrPanel = node('section', 'panel');
+  const hrH = node('h2', '', '24 小时买家活跃分布');
+  hrH.append(node('small', '', '本地时间 · 买家消息数'));
+  hrPanel.append(hrH);
+  const hrChart = node('div', 'hour-chart');
+  const hrs = data.hours || Array(24).fill(0);
+  const maxHr = Math.max(1, ...hrs);
+  hrs.forEach((cnt, h) => {
+    const col = node('div', 'hour-col');
+    col.title = `${h}:00 - ${h + 1}:00：${cnt} 条买家消息`;
+    const bar = node('div', 'hour-bar');
+    bar.style.height = Math.max(2, Math.round((cnt / maxHr) * 84)) + 'px';
+    col.append(bar, node('span', 'hour-lbl', h % 3 === 0 ? String(h) : ''));
+    hrChart.append(col);
+  });
+  hrPanel.append(hrChart);
+  midGrid.append(stPanel, hrPanel);
+  body.append(midGrid);
+
+  const prPanel = node('section', 'panel');
+  const prH = node('h2', '', '热门咨询商品 Top 10');
+  prH.append(node('small', '', '解析自真实商品卡片'));
+  prPanel.append(prH);
+  if (!(data.top_products || []).length) {
+    prPanel.append(node('p', 'muted', '选定周期内暂无商品卡片记录。'));
+  } else {
+    for (const p of data.top_products) {
+      const row = node('div', 'prod-row');
+      row.append(
+        node('span', 'prod-title', p.title),
+        node('span', 'prod-meta', [p.price, `${p.buyers} 位买家`, `${p.mentions} 次`].filter(Boolean).join(' · '))
+      );
+      prPanel.append(row);
+    }
+  }
+  body.append(prPanel);
+}
+
 for (const el of document.querySelectorAll('[data-screen]')) {
   el.addEventListener('click', async () => {
-    const settings = el.dataset.screen === 'settings';
-    $('work-screen').hidden = settings;
-    $('settings-screen').hidden = !settings;
+    const screen = el.dataset.screen;
+    $('work-screen').hidden = screen !== 'work';
+    $('analytics-screen').hidden = screen !== 'analytics';
+    $('settings-screen').hidden = screen !== 'settings';
     document.querySelectorAll('[data-screen]').forEach(tab => tab.classList.toggle('active', tab === el));
-    if (settings) {
+    if (screen === 'settings') {
       try { await loadSettings(!state.settingsLoaded); }
       catch (error) { notice(error.message); }
+    } else if (screen === 'analytics') {
+      await loadAnalytics().catch(error => notice(error.message));
     } else {
       await loadList().catch(error => notice(error.message));
     }
   });
 }
+$('analytics-days')?.addEventListener('change', () => loadAnalytics().catch(error => notice(error.message)));
+$('analytics-refresh')?.addEventListener('click', () => loadAnalytics().catch(error => notice(error.message)));
+$('export-csv')?.addEventListener('click', async () => {
+  try {
+    const user = $('accounts')?.value || '';
+    const res = await fetch('/api/workbench/export.csv' + params({ user }));
+    if (!res.ok) throw new Error('导出失败');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'alisupplier-customers.csv';
+    document.body.append(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    notice('已导出客户台账 CSV');
+  } catch (error) {
+    notice(error.message);
+  }
+});
 $('close-detail').addEventListener('click', () => $('detail').close());
 $('detail').addEventListener('close', () => { state.selected = null; });
 $('more').addEventListener('click', () => loadList(true).catch(error => notice(error.message)));

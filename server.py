@@ -24,6 +24,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 from ai_gateway import AIError, PROTOCOLS, request_model
+from analytics import compute_analytics, export_customers_csv
 from workbench import Workbench, parse_summary
 from workbench_media import card_payload
 
@@ -899,6 +900,22 @@ class Handler(BaseHTTPRequestHandler):
             if image:
                 return self._send(200, image[1], image[0])
             return self._send(404, '图片不可用', 'text/plain; charset=utf-8')
+        if path == '/api/workbench/analytics':
+            days = int(value('days', '30') or '30')
+            return self._json(compute_analytics(self.store, value('user'), days))
+        if path == '/api/workbench/export.csv':
+            csv_bytes = export_customers_csv(self.store, value('user'))
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/csv; charset=utf-8')
+            self.send_header('Content-Disposition', 'attachment; filename="alisupplier-customers.csv"')
+            self.send_header('Content-Length', str(len(csv_bytes)))
+            self.send_header('Cache-Control', 'no-store')
+            self.end_headers()
+            try:
+                self.wfile.write(csv_bytes)
+            except Exception:
+                pass
+            return
         return self._json({'error': '接口不存在'}, 404)
 
     def _workbench_post(self, path, values):
