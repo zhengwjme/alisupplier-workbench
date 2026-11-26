@@ -91,23 +91,28 @@ function renderList() {
     };
     list.append(node('div', 'empty', empty[state.filter] || '暂无数据'));
   }
-  for (const row of state.rows) {
+  if ($('list-count')) $('list-count').textContent = state.rows.length ? `${state.rows.length} 位` : '';
+  const chevSvg = '<svg class="thread-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
+  state.rows.forEach((row, idx) => {
     const el = button('', () => openDetail(row), 'thread');
     const name = row.peer || row.cid;
-    const avatar = node('div', 'thread-avatar', (name || '?').slice(0, 1).toUpperCase());
+    const avatar = node('div', 'thread-avatar tone-' + (idx % 4), (name || '?').slice(0, 1).toUpperCase());
     const body = node('div', 'thread-body');
     const top = node('div', 'thread-top');
     top.append(node('strong', 'client', name), node('span', 'thread-time', formatTime(row.created_at || row.activity)));
     const summaryText = row.next_step ? ('建议：' + row.next_step) : (row.changes || row.latest_content || '暂无消息摘要');
     body.append(top, node('div', 'change', summaryText));
     const [label, type] = statusFor(row);
-    const foot = node('div', 'thread-foot');
-    foot.append(node('span', 'badge ' + type, label));
-    if (row.stage) foot.append(node('span', 'stage-pill', row.stage));
-    body.append(foot);
-    el.append(avatar, body);
+    const meta = node('div', 'thread-meta');
+    const dotCls = type === 'warn' ? 'warn' : (type === '' ? 'ok' : '');
+    meta.append(node('span', 'status-dot ' + dotCls, label));
+    if (row.stage) meta.append(node('span', 'stage-pill', row.stage));
+    body.append(meta);
+    const chevWrap = document.createElement('span');
+    chevWrap.innerHTML = chevSvg;
+    el.append(avatar, body, chevWrap.firstElementChild);
     list.append(el);
-  }
+  });
   $('more').hidden = !state.more;
 }
 
@@ -657,35 +662,71 @@ async function loadAnalytics() {
   const kpi = data.kpi || {};
   body.replaceChildren();
 
-  const kpiGrid = node('div', 'kpi-grid');
-  const addKpi = (label, val, sub, cls = '') => {
-    const card = node('div', 'kpi-card');
-    card.append(node('div', 'kpi-label', label), node('div', 'kpi-value ' + cls, String(val)), node('div', 'kpi-sub', sub));
-    kpiGrid.append(card);
-  };
-  addKpi('独立咨询商品', kpi.unique_products || 0, `覆盖 ${kpi.total_customers || 0} 位客户会话`, 'accent');
-  addKpi('已识别国家/地区', kpi.unique_countries || 0, `已定位 ${kpi.identified_country_customers || 0} 位买家地域`, 'accent');
-  addKpi('待我回复 / 待唤醒', `${kpi.unreplied_count || 0} / ${kpi.silent_followup_count || 0}`, `买家消息 ${kpi.in_messages || 0} · 我方 ${kpi.out_messages || 0}`, (kpi.unreplied_count || 0) > 0 ? 'warn' : '');
-  const respText = kpi.avg_response_minutes !== null && kpi.avg_response_minutes !== undefined ? kpi.avg_response_minutes + ' 分钟' : '暂无样本';
-  const rateText = kpi.within_1h_rate !== null && kpi.within_1h_rate !== undefined ? `1小时回复率 ${kpi.within_1h_rate}% (${kpi.response_samples}次)` : '需产生问答交互后统计';
-  addKpi('平均响应耗时', respText, rateText);
-  body.append(kpiGrid);
+  // 图 3 Everyday 风格上下分置双弧（中间留出宽阔通道放数字，绝不压字）
+  const hero = node('section', 'rings-hero');
+  const visual = node('div', 'rings-visual');
+  visual.innerHTML = `
+    <svg viewBox="0 0 280 152" fill="none" aria-hidden="true">
+      <path d="M 38 42 C 52 10, 118 8, 146 34" stroke="#233478" stroke-width="5.5" stroke-linecap="round"/>
+      <path d="M 134 34 C 162 8, 228 10, 242 42" stroke="#a4562e" stroke-width="5.5" stroke-linecap="round"/>
+      <path d="M 46 116 C 68 144, 122 144, 144 124" stroke="#233478" stroke-width="5.5" stroke-linecap="round"/>
+      <path d="M 136 124 C 158 144, 212 144, 234 116" stroke="#a4562e" stroke-width="5.5" stroke-linecap="round"/>
+    </svg>`;
+  const center = node('div', 'rings-center');
+  center.append(
+    node('div', 'rings-kicker', '独立咨询商品 · 覆盖国家'),
+    (() => {
+      const n = node('div', 'rings-num', String(kpi.unique_products || 0));
+      n.append(node('small', '', `/ ${kpi.unique_countries || 0}国`));
+      return n;
+    })(),
+    node('div', 'rings-sub', `${kpi.total_customers || 0} 位买家 · ${kpi.in_messages || 0} 条询盘`)
+  );
+  visual.append(center);
 
-  // 选品核心区 1：客户地域分布（大区 + 国家 Top 15）
+  const acts = node('div', 'rings-actions');
+  const mkAct = (label, cls, svg, fn) => {
+    const b = button('', fn, 'ring-act');
+    const c = node('span', 'ring-act-circle ' + cls);
+    c.innerHTML = svg;
+    b.append(c, node('span', '', label));
+    return b;
+  };
+  acts.append(
+    mkAct('导出 CSV', 'solid', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>', exportCsv),
+    mkAct('刷新统计', 'outline', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>', () => loadAnalytics().catch(e => notice(e.message)))
+  );
+  hero.append(visual, acts);
+  body.append(hero);
+
+  // 紧凑 3 列核心效率条
+  const strip = node('div', 'stat-strip');
+  const addCell = (lbl, val, cls = '') => {
+    const c = node('div', 'stat-cell');
+    c.append(node('span', '', lbl), node('strong', cls, String(val)));
+    strip.append(c);
+  };
+  addCell('待我回复', kpi.unreplied_count || 0, (kpi.unreplied_count || 0) > 0 ? 'warn' : '');
+  addCell('沉默待唤醒', kpi.silent_followup_count || 0);
+  const respText = kpi.avg_response_minutes !== null && kpi.avg_response_minutes !== undefined ? kpi.avg_response_minutes + 'm' : '—';
+  addCell('平均响应', respText);
+  body.append(strip);
+
+  // 客户地域分布（大区 + 国家 Top 15）
   const geoGrid = node('div', 'analytics-grid');
-  const regPanel = node('section', 'panel');
+  const regPanel = node('section', 'section-block');
   const regH = node('h2', '', '客户大区分布');
-  regH.append(node('small', '', '卡片 + 实时集成'));
+  regH.append(node('small', '', '卡片 + 集成'));
   regPanel.append(regH);
   const regBars = node('div', 'bar-list');
   if (!(data.regions || []).length) {
-    regBars.append(node('p', 'muted', '暂无已识别地域数据，开启阿里卖家集成或同步卡片后自动累计。'));
+    regBars.append(node('p', 'muted', '暂无已识别地域数据。'));
   } else {
     const maxReg = Math.max(1, ...data.regions.map(r => r.buyers));
     for (const r of data.regions) {
       const row = node('div', 'bar-row');
       const track = node('div', 'bar-track');
-      const fill = node('div', 'bar-fill');
+      const fill = node('div', 'bar-fill copper');
       fill.style.width = Math.round((r.buyers / maxReg) * 100) + '%';
       track.append(fill);
       row.append(node('span', '', r.region), track, node('strong', '', r.buyers + '人'));
@@ -694,9 +735,9 @@ async function loadAnalytics() {
   }
   regPanel.append(regBars);
 
-  const ctryPanel = node('section', 'panel');
+  const ctryPanel = node('section', 'section-block');
   const ctryH = node('h2', '', '买家来源国家 Top 15');
-  ctryH.append(node('small', '', '按独立买家数排序'));
+  ctryH.append(node('small', '', '独立买家数'));
   ctryPanel.append(ctryH);
   const ctryBars = node('div', 'bar-list');
   if (!(data.countries || []).length) {
@@ -709,9 +750,7 @@ async function loadAnalytics() {
       const fill = node('div', 'bar-fill');
       fill.style.width = Math.round((c.buyers / maxC) * 100) + '%';
       track.append(fill);
-      const lbl = node('span', '', c.name);
-      lbl.title = `${c.name} · ${c.region} · ${c.messages} 条消息`;
-      row.append(lbl, track, node('strong', '', c.buyers + '人'));
+      row.append(node('span', '', c.name), track, node('strong', '', c.buyers + '人'));
       ctryBars.append(row);
     }
   }
@@ -719,9 +758,8 @@ async function loadAnalytics() {
   geoGrid.append(regPanel, ctryPanel);
   body.append(geoGrid);
 
-  // 选品核心区 2：热门咨询商品 Top 15 + 品类热词 & 国家×商品交叉
-  const prPanel = node('section', 'panel');
-  prPanel.style.marginBottom = '16px';
+  // 热门咨询商品 Top 15
+  const prPanel = node('section', 'section-block');
   const prH = node('h2', '', '热门咨询商品 Top 15');
   prH.append(node('small', '', '标价 · MOQ · 来源国'));
   prPanel.append(prH);
@@ -733,113 +771,71 @@ async function loadAnalytics() {
       const info = node('div', 'prod-info');
       info.append(node('span', 'prod-title', p.title));
       const subParts = [];
-      if (p.price) subParts.push('标价 ' + p.price);
+      if (p.price) subParts.push(p.price);
       if (p.moq) subParts.push('MOQ ' + p.moq);
-      if (p.countries?.length) subParts.push('买家来源: ' + p.countries.join('、'));
+      if (p.countries?.length) subParts.push(p.countries.join('、'));
       if (subParts.length) info.append(node('span', 'prod-sub', subParts.join(' · ')));
-      row.append(info, node('span', 'prod-meta', `${p.buyers} 位买家 / ${p.mentions} 次`));
+      row.append(info, node('span', 'prod-meta', `${p.buyers}人 / ${p.mentions}次`));
       prPanel.append(row);
     }
   }
   body.append(prPanel);
 
+  // 品类热词 & 国家×商品
   const selGrid = node('div', 'analytics-grid');
-  const kwPanel = node('section', 'panel');
-  const kwH = node('h2', '', '高需求产品品类热词');
-  kwH.append(node('small', '', '按咨询买家数加权'));
+  const kwPanel = node('section', 'section-block');
+  const kwH = node('h2', '', '高需求品类热词');
+  kwH.append(node('small', '', '买家数加权'));
   kwPanel.append(kwH);
   const kwCloud = node('div', 'kw-cloud');
-  if (!(data.top_keywords || []).length) {
-    kwCloud.append(node('p', 'muted', '暂无产品热词数据。'));
-  } else {
-    for (const k of data.top_keywords) {
-      const pill = node('span', 'kw-pill', k.word);
-      pill.append(node('small', '', String(k.buyers)));
-      kwCloud.append(pill);
-    }
+  for (const k of data.top_keywords || []) {
+    const pill = node('span', 'kw-pill', k.word);
+    pill.append(node('small', '', String(k.buyers)));
+    kwCloud.append(pill);
   }
   kwPanel.append(kwCloud);
 
-  const cpPanel = node('section', 'panel');
-  const cpH = node('h2', '', '国家 × 热询商品（定向选品）');
-  cpH.append(node('small', '', '各市场买家在问什么品'));
+  const cpPanel = node('section', 'section-block');
+  const cpH = node('h2', '', '国家 × 热询商品');
+  cpH.append(node('small', '', '定向选品'));
   cpPanel.append(cpH);
   if (!(data.country_products || []).length) {
-    cpPanel.append(node('p', 'muted', '暂无已同时关联国家与商品的会话。在阿里卖家点击客户即可自动补齐国家信息。'));
+    cpPanel.append(node('p', 'muted', '开启集成后点击阿里卖家客户，将自动关联买家国家与咨询商品。'));
   } else {
     for (const cp of data.country_products) {
-      const item = node('div', 'cp-item');
-      item.append(
-        node('div', 'cp-head', `${cp.country} · ${cp.region}`),
-        node('div', 'cp-prods', cp.products.map(p => `${p.title.slice(0, 48)} (${p.buyers})`).join(' ｜ '))
+      const item = node('div', 'prod-row');
+      const info = node('div', 'prod-info');
+      info.append(
+        node('span', 'prod-title', `${cp.country} · ${cp.region}`),
+        node('span', 'prod-sub', cp.products.map(p => `${p.title.slice(0, 42)} (${p.buyers})`).join(' ｜ '))
       );
+      item.append(info);
       cpPanel.append(item);
     }
   }
   selGrid.append(kwPanel, cpPanel);
   body.append(selGrid);
 
-  const topGrid = node('div', 'analytics-grid');
-  const unPanel = node('section', 'panel');
-  const unH = node('h2', '', '急需回复客户');
-  unH.append(node('small', '', '点击直接打开详情'));
-  unPanel.append(unH);
+  // 急需回复 & 沉默待唤醒
+  const actGrid = node('div', 'analytics-grid');
+  const unPanel = node('section', 'section-block');
+  unPanel.append(node('h2', '', '急需回复客户'));
   const unList = node('div', 'action-list');
-  if (!(data.urgent_unreplied || []).length) {
-    unList.append(node('p', 'muted', '暂无待回复客户。'));
-  } else {
-    for (const item of data.urgent_unreplied) {
-      const btn = button('', () => openDetail({ user_id: item.user_id, cid: item.cid, peer: item.peer }, false), 'action-item');
-      const main = node('div', 'action-item-main');
-      const extraTag = [item.country, item.stage].filter(Boolean).join(' · ');
-      main.append(node('strong', '', item.peer + (extraTag ? ` [${extraTag}]` : '')), node('small', '', item.last_content || '等待回复'));
-      const waitTxt = item.wait_minutes >= 60 ? Math.floor(item.wait_minutes / 60) + '小时' : item.wait_minutes + '分钟';
-      btn.append(main, node('span', 'badge warn', '已等 ' + waitTxt));
-      unList.append(btn);
-    }
+  for (const item of data.urgent_unreplied || []) {
+    const btn = button('', () => openDetail({ user_id: item.user_id, cid: item.cid, peer: item.peer }, false), 'action-item');
+    const main = node('div', 'action-item-main');
+    const extraTag = [item.country, item.stage].filter(Boolean).join(' · ');
+    main.append(node('strong', '', item.peer + (extraTag ? ` · ${extraTag}` : '')), node('small', '', item.last_content || '等待回复'));
+    const waitTxt = item.wait_minutes >= 60 ? Math.floor(item.wait_minutes / 60) + 'h' : item.wait_minutes + 'm';
+    btn.append(main, node('span', 'action-tag', waitTxt));
+    unList.append(btn);
   }
+  if (!unList.children.length) unList.append(node('p', 'muted', '暂无待回复客户。'));
   unPanel.append(unList);
 
-  const siPanel = node('section', 'panel');
-  const siH = node('h2', '', '沉默待唤醒客户 (>24h)');
-  siH.append(node('small', '', '适合二次跟进'));
-  siPanel.append(siH);
-  const siList = node('div', 'action-list');
-  if (!(data.silent_followups || []).length) {
-    siList.append(node('p', 'muted', '暂无超过 24 小时未回的客户。'));
-  } else {
-    for (const item of data.silent_followups) {
-      const btn = button('', () => openDetail({ user_id: item.user_id, cid: item.cid, peer: item.peer }, false), 'action-item');
-      const main = node('div', 'action-item-main');
-      const extraTag = [item.country, item.stage].filter(Boolean).join(' · ');
-      main.append(node('strong', '', item.peer + (extraTag ? ` [${extraTag}]` : '')), node('small', '', item.last_content || '我方已发送'));
-      btn.append(main, node('span', 'badge neutral', item.wait_hours + 'h 前'));
-      siList.append(btn);
-    }
-  }
-  siPanel.append(siList);
-  topGrid.append(unPanel, siPanel);
-  body.append(topGrid);
-
-  const midGrid = node('div', 'analytics-grid');
-  const stPanel = node('section', 'panel');
-  stPanel.append(node('h2', '', '客户意向阶段分布'));
-  const stBars = node('div', 'bar-list');
-  const maxStage = Math.max(1, ...(data.stages || []).map(s => s.count));
-  for (const s of data.stages || []) {
-    const row = node('div', 'bar-row');
-    const track = node('div', 'bar-track');
-    const fill = node('div', 'bar-fill');
-    fill.style.width = Math.round((s.count / maxStage) * 100) + '%';
-    track.append(fill);
-    row.append(node('span', '', s.stage), track, node('strong', '', String(s.count)));
-    stBars.append(row);
-  }
-  stPanel.append(stBars);
-
-  const hrPanel = node('section', 'panel');
-  const hrH = node('h2', '', '24 小时买家活跃分布');
-  hrH.append(node('small', '', '本地时间 · 买家消息数'));
+  const hrPanel = node('section', 'section-block');
+  const hrH = node('h2', '', '24 小时买家活跃');
+  hrH.append(node('small', '', '本地时间'));
   hrPanel.append(hrH);
   const hrChart = node('div', 'hour-chart');
   const hrs = data.hours || Array(24).fill(0);
@@ -848,13 +844,33 @@ async function loadAnalytics() {
     const col = node('div', 'hour-col');
     col.title = `${h}:00 - ${h + 1}:00：${cnt} 条买家消息`;
     const bar = node('div', 'hour-bar');
-    bar.style.height = Math.max(2, Math.round((cnt / maxHr) * 84)) + 'px';
+    bar.style.height = Math.max(2, Math.round((cnt / maxHr) * 76)) + 'px';
     col.append(bar, node('span', 'hour-lbl', h % 3 === 0 ? String(h) : ''));
     hrChart.append(col);
   });
   hrPanel.append(hrChart);
-  midGrid.append(stPanel, hrPanel);
-  body.append(midGrid);
+  actGrid.append(unPanel, hrPanel);
+  body.append(actGrid);
+}
+
+async function exportCsv() {
+  try {
+    const user = $('accounts')?.value || '';
+    const res = await fetch('/api/workbench/export.csv' + params({ user }));
+    if (!res.ok) throw new Error('导出失败');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'alisupplier-customers.csv';
+    document.body.append(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    notice('已导出客户台账 CSV');
+  } catch (error) {
+    notice(error.message);
+  }
 }
 
 const screenTitles = { work: '客户跟进', analytics: '选品与统计', settings: 'AI 与设置' };

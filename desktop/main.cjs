@@ -162,7 +162,7 @@ function createDesktop(options = {}) {
   function createWindow() {
     window = new BrowserWindow({
       width: 360, height: 700, minWidth: 320, minHeight: 480, show: false,
-      title: displayName, icon, backgroundColor: '#f4f6f9', autoHideMenuBar: process.platform === 'win32',
+      title: displayName, icon, backgroundColor: '#fafaf7', autoHideMenuBar: process.platform === 'win32',
       titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
       trafficLightPosition: process.platform === 'darwin' ? { x: 14, y: 14 } : undefined,
       webPreferences: rendererOptions(),

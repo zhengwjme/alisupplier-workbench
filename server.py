@@ -775,6 +775,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._file('workbench.js', 'application/javascript; charset=utf-8')
             if p == '/workbench.css':
                 return self._file('workbench.css', 'text/css; charset=utf-8')
+            if p == '/hero-trade.jpg':
+                return self._file('hero-trade.jpg', 'image/jpeg')
             if p.startswith('/api/workbench/'):
                 return self._workbench_get(p, qs)
             if p == '/app.js':
