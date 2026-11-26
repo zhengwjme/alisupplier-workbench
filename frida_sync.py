@@ -26,25 +26,36 @@ def default_runtime_file():
 
 
 def find_frida_bin():
-    for candidate in (shutil.which('frida'), os.path.expanduser('~/.local/bin/frida')):
+    exe = 'frida.exe' if os.name == 'nt' else 'frida'
+    for candidate in (shutil.which('frida'), os.path.expanduser(os.path.join('~', '.local', 'bin', exe))):
         if candidate and os.path.isfile(candidate) and os.access(candidate, os.X_OK):
             return candidate
     return None
 
 
 def find_target_pid():
-    try:
-        out = subprocess.check_output(['pgrep', '-x', '阿里卖家'], text=True).strip()
-        if out:
-            return int(out.splitlines()[0])
-    except Exception:
-        pass
-    try:
-        out = subprocess.check_output(['pgrep', '-x', 'AliSupplier'], text=True).strip()
-        if out:
-            return int(out.splitlines()[0])
-    except Exception:
-        pass
+    if os.name == 'nt':
+        import csv
+        flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+        for name in ('AliSupplier.exe', 'AliWorkbench.exe'):
+            try:
+                out = subprocess.check_output(
+                    ['tasklist', '/FI', 'IMAGENAME eq ' + name, '/FO', 'CSV', '/NH'],
+                    text=True, creationflags=flags, stderr=subprocess.DEVNULL
+                ).strip()
+                for row in csv.reader(out.splitlines()):
+                    if len(row) >= 2 and row[0].lower() == name.lower() and row[1].isdigit():
+                        return int(row[1])
+            except Exception:
+                pass
+        return None
+    for name in ('阿里卖家', 'AliSupplier'):
+        try:
+            out = subprocess.check_output(['pgrep', '-x', name], text=True).strip()
+            if out:
+                return int(out.splitlines()[0])
+        except Exception:
+            pass
     return None
 
 

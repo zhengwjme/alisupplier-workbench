@@ -1125,18 +1125,41 @@ class FridaBridge(object):
         self.agent_path = os.path.join(HERE, 'frida_agent.js')
 
     def _find_frida(self):
-        for cand in (
-            os.path.join(HERE, 'frida'),
+        exe = 'frida.exe' if os.name == 'nt' else 'frida'
+        cands = [
+            os.path.join(HERE, exe),
             shutil.which('frida'),
-            os.path.expanduser('~/.local/bin/frida'),
-            '/opt/homebrew/bin/frida',
-            '/usr/local/bin/frida',
-        ):
+            os.path.expanduser(os.path.join('~', '.local', 'bin', exe)),
+        ]
+        if os.name == 'nt':
+            import glob
+            for base in (os.environ.get('LOCALAPPDATA'), os.environ.get('APPDATA'), os.path.expanduser('~')):
+                if base:
+                    cands.extend(glob.glob(os.path.join(base, 'Programs', 'Python', 'Python*', 'Scripts', 'frida.exe')))
+                    cands.extend(glob.glob(os.path.join(base, 'Python', 'Python*', 'Scripts', 'frida.exe')))
+        else:
+            cands.extend(['/opt/homebrew/bin/frida', '/usr/local/bin/frida'])
+        for cand in cands:
             if cand and os.path.isfile(cand) and os.access(cand, os.X_OK):
                 return cand
         return None
 
     def _find_target_pid(self):
+        if os.name == 'nt':
+            import csv
+            flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+            for name in ('AliSupplier.exe', 'AliWorkbench.exe'):
+                try:
+                    out = subprocess.check_output(
+                        ['tasklist', '/FI', 'IMAGENAME eq ' + name, '/FO', 'CSV', '/NH'],
+                        text=True, creationflags=flags, stderr=subprocess.DEVNULL
+                    ).strip()
+                    for row in csv.reader(out.splitlines()):
+                        if len(row) >= 2 and row[0].lower() == name.lower() and row[1].isdigit():
+                            return int(row[1])
+                except Exception:
+                    pass
+            return None
         for name in ('阿里卖家', 'AliSupplier'):
             try:
                 out = subprocess.check_output(['pgrep', '-x', name], text=True).strip()
@@ -1148,14 +1171,14 @@ class FridaBridge(object):
 
     def snapshot(self):
         with self.lock:
-            if sys.platform != 'darwin':
+            if sys.platform not in ('darwin', 'win32'):
                 return {
                     'available': False,
                     'enabled': False,
                     'state': 'disabled',
                     'pid': None,
                     'error': '',
-                    'reason': '实时联动当前仅支持 macOS',
+                    'reason': '实时联动当前仅支持 macOS 与 Windows',
                 }
             avail = bool(self._find_frida() and os.path.isfile(self.agent_path))
             return {
@@ -1164,7 +1187,7 @@ class FridaBridge(object):
                 'state': self.state,
                 'pid': self.pid,
                 'error': self.error,
-                'reason': '' if avail else '未检测到 frida CLI 或 frida_agent.js',
+                'reason': '' if avail else '未检测到 frida CLI（请先 pip install frida-tools）',
             }
 
     def _set_state(self, state, pid=None, error=''):
@@ -1217,11 +1240,13 @@ class FridaBridge(object):
                 continue
             self._set_state('attaching', pid, '')
             try:
-                proc = subprocess.Popen(
-                    [frida_bin, '-p', str(pid), '-l', self.agent_path],
+                popen_kwargs = dict(
                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                    text=True, bufsize=1,
+                    text=True, encoding='utf-8', errors='replace', bufsize=1,
                 )
+                if os.name == 'nt':
+                    popen_kwargs['creationflags'] = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+                proc = subprocess.Popen([frida_bin, '-p', str(pid), '-l', self.agent_path], **popen_kwargs)
             except Exception as exc:
                 self._set_state('error', pid, str(exc))
                 self.stop_flag.wait(3.0)
